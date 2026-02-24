@@ -2,9 +2,10 @@
 
 import { useState } from 'react'
 import TopTokens from '@/components/TopTokens'
+import FearAndGreed from '@/components/FearAndGreed'
 import {
   mockWalletData, mockTokens, mockTransactions, mockDeFiPositions,
-  mockPortfolioHistory, mockFearGreed,
+  mockPortfolioHistory,
   formatCurrency, formatTime, TX_ICONS, TX_COLORS, CHART_COLORS
 } from '@/lib/mockData'
 import {
@@ -305,90 +306,6 @@ function PortfolioHistory() {
 
 // ─── Top Monad Tokens ────────────────────────────────────────────────────────
 // ─── Fear & Greed ────────────────────────────────────────────────────────────
-function FearAndGreed() {
-  const { value, label, weekAgo, monthAgo } = mockFearGreed
-
-  const getColor = (v: number) => {
-    if (v <= 25) return '#ef4444'
-    if (v <= 45) return '#f97316'
-    if (v <= 55) return '#eab308'
-    if (v <= 75) return '#22c55e'
-    return '#10b981'
-  }
-
-  const getLabel = (v: number) => {
-    if (v <= 25) return 'Extreme Fear'
-    if (v <= 45) return 'Fear'
-    if (v <= 55) return 'Neutral'
-    if (v <= 75) return 'Greed'
-    return 'Extreme Greed'
-  }
-
-  const color = getColor(value)
-
-  // SVG gauge
-  const radius = 60
-  const circumference = Math.PI * radius
-  const offset = circumference - (value / 100) * circumference
-
-  return (
-    <div className="card p-5 flex flex-col">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-display font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Fear & Greed</h3>
-        <a href="https://cryptorank.io/charts/fear-and-greed" target="_blank" rel="noopener noreferrer" className="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-0.5">
-          CryptoRank <ChevronRight size={12} />
-        </a>
-      </div>
-
-      <div className="flex flex-col items-center flex-1 justify-center">
-        {/* Gauge SVG */}
-        <div className="relative">
-          <svg width="160" height="90" viewBox="0 0 160 90">
-            {/* Background arc */}
-            <path
-              d="M 10 80 A 70 70 0 0 1 150 80"
-              fill="none"
-              stroke="#f3f0ff"
-              strokeWidth="14"
-              strokeLinecap="round"
-            />
-            {/* Colored arc */}
-            <path
-              d="M 10 80 A 70 70 0 0 1 150 80"
-              fill="none"
-              stroke={color}
-              strokeWidth="14"
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={offset}
-              style={{ transition: 'stroke-dashoffset 1s ease, stroke 0.5s ease' }}
-            />
-          </svg>
-          {/* Center value */}
-          <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
-            <span className="text-3xl font-bold font-display" style={{ fontFamily: 'Sora, sans-serif', color }}>{value}</span>
-            <span className="text-xs font-medium" style={{ color }}>{label}</span>
-          </div>
-        </div>
-
-        {/* Historical comparison */}
-        <div className="w-full mt-4 grid grid-cols-2 gap-2">
-          <div className="bg-violet-50 rounded-lg p-3 text-center">
-            <p className="text-xs text-gray-400 mb-1">Last Week</p>
-            <p className="font-bold text-gray-700">{weekAgo}</p>
-            <p className="text-xs font-medium" style={{ color: getColor(weekAgo) }}>{getLabel(weekAgo)}</p>
-          </div>
-          <div className="bg-violet-50 rounded-lg p-3 text-center">
-            <p className="text-xs text-gray-400 mb-1">Last Month</p>
-            <p className="font-bold text-gray-700">{monthAgo}</p>
-            <p className="text-xs font-medium" style={{ color: getColor(monthAgo) }}>{getLabel(monthAgo)}</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ─── NFT Gating Banner ───────────────────────────────────────────────────────
 function NFTGatingBanner() {
   return (
