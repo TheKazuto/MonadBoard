@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
+import TopTokens from '@/components/TopTokens'
 import {
   mockWalletData, mockTokens, mockTransactions, mockDeFiPositions,
-  mockPortfolioHistory, mockTopTokens, mockFearGreed,
+  mockPortfolioHistory, mockFearGreed,
   formatCurrency, formatTime, TX_ICONS, TX_COLORS, CHART_COLORS
 } from '@/lib/mockData'
 import {
@@ -303,55 +304,6 @@ function PortfolioHistory() {
 }
 
 // ─── Top Monad Tokens ────────────────────────────────────────────────────────
-function TopTokens() {
-  return (
-    <div className="card p-5">
-      <h3 className="font-display font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>Top Monad Tokens</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm responsive-table">
-          <thead>
-            <tr className="text-xs text-gray-400 border-b border-gray-100">
-              <th className="pb-2 text-left font-medium">#</th>
-              <th className="pb-2 text-left font-medium">Token</th>
-              <th className="pb-2 text-right font-medium">Price</th>
-              <th className="pb-2 text-right font-medium hidden sm:table-cell">Mkt Cap</th>
-              <th className="pb-2 text-right font-medium">24h</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {mockTopTokens.map((token) => {
-              const isPositive = token.change24h >= 0
-              return (
-                <tr key={token.symbol} className="hover:bg-violet-50/50 transition-colors">
-                  <td className="py-2.5 text-gray-400 text-xs">{token.rank}</td>
-                  <td className="py-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{token.logo}</span>
-                      <div>
-                        <p className="font-semibold text-gray-800">{token.symbol}</p>
-                        <p className="text-xs text-gray-400 hidden sm:block">{token.name}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-2.5 text-right font-mono text-gray-700">
-                    {token.price < 0.01 ? `$${token.price.toFixed(6)}` : token.price < 1 ? `$${token.price.toFixed(4)}` : `$${token.price.toFixed(2)}`}
-                  </td>
-                  <td className="py-2.5 text-right text-gray-500 hidden sm:table-cell">
-                    {formatCurrency(token.marketCap)}
-                  </td>
-                  <td className={`py-2.5 text-right font-semibold ${isPositive ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {isPositive ? '+' : ''}{token.change24h.toFixed(1)}%
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
-
 // ─── Fear & Greed ────────────────────────────────────────────────────────────
 function FearAndGreed() {
   const { value, label, weekAgo, monthAgo } = mockFearGreed
