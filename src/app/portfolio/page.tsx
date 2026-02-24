@@ -12,6 +12,7 @@ import PortfolioHistory from '@/components/PortfolioHistory'
 interface Token {
   symbol: string; name: string; balance: number
   price: number; value: number; color: string; percentage: number
+  imageUrl?: string
 }
 interface NFT {
   id: string; contract: string; tokenId: string
@@ -84,8 +85,12 @@ function TokenRow({ token }: { token: Token }) {
     <tr className="hover:bg-violet-50/40 transition-colors">
       <td className="py-3.5 px-5">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm" style={{ background: token.color }}>
-            {token.symbol.slice(0, 2)}
+          <div className="w-9 h-9 rounded-full shrink-0 overflow-hidden shadow-sm" style={{ background: token.color }}>
+            {token.imageUrl
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={token.imageUrl} alt={token.symbol} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none' }} />
+              : <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold">{token.symbol.slice(0,2)}</div>
+            }
           </div>
           <div>
             <p className="font-semibold text-gray-800 text-sm">{token.symbol}</p>

@@ -124,21 +124,34 @@ export async function GET(req: NextRequest) {
       return { ...token, balance }
     })
 
-    // ── 3. Fetch prices from CoinGecko (free, no key) ─────────────────────────
+    // ── 3. Fetch prices + images from CoinGecko (free, no key) ────────────────
     const coinIds = [
       'monad', // MON native
       ...KNOWN_TOKENS.map((t) => t.coingeckoId),
     ].join(',')
 
     let prices: Record<string, number> = {}
+    let images: Record<string, string> = {}
     try {
       const priceRes = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds}&vs_currencies=usd`,
+        `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds}&vs_currencies=usd&include_24hr_change=true`,
         { next: { revalidate: 60 } }
       )
       const priceData = await priceRes.json()
       for (const [id, val] of Object.entries(priceData)) {
         prices[id] = (val as any).usd ?? 0
+      }
+
+      // Fetch images via /coins/markets (includes image, free tier)
+      const marketRes = await fetch(
+        `https://api.coingecko.com/api/v3/coins/markets?ids=${coinIds}&vs_currency=usd&per_page=20`,
+        { next: { revalidate: 3600 } }
+      )
+      const marketData = await marketRes.json()
+      if (Array.isArray(marketData)) {
+        for (const coin of marketData) {
+          if (coin.id && coin.image) images[coin.id] = coin.image
+        }
       }
     } catch {
       // fallback prices if CoinGecko fails
@@ -163,6 +176,7 @@ export async function GET(req: NextRequest) {
       price: number
       value: number
       color: string
+      imageUrl: string
     }[] = []
 
     // Add MON native
@@ -174,6 +188,7 @@ export async function GET(req: NextRequest) {
         price: monPrice,
         value: monValue,
         color: '#836EF9',
+        imageUrl: images['monad'] ?? '',
       })
     }
 
@@ -189,6 +204,7 @@ export async function GET(req: NextRequest) {
           price,
           value,
           color: token.color,
+          imageUrl: images[token.coingeckoId] ?? '',
         })
       }
     }
