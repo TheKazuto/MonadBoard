@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, Wallet, BarChart3, History, User, Menu, X, Zap } from 'lucide-react'
@@ -17,9 +17,6 @@ const navLinks = [
 export default function Navbar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
-  // Monta o ConnectButton só no client para evitar hydration mismatch
-  const [mounted, setMounted] = useState(false)
-  useEffect(() => setMounted(true), [])
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-40 glass border-b border-violet-100/60 h-16">
@@ -59,22 +56,11 @@ export default function Navbar() {
           })}
         </div>
 
-        {/* Connect Wallet — só renderiza após mount para evitar hydration mismatch */}
+        {/* Connect Wallet */}
         <div className="flex items-center gap-3">
           <div className="hidden md:block">
-            {mounted ? (
-              <ConnectButton
-                chainStatus="none"
-                showBalance={false}
-                label="Connect Wallet"
-              />
-            ) : (
-              // Placeholder com mesma altura/largura para não dar layout shift
-              <div className="h-10 w-36 rounded-xl bg-violet-100 animate-pulse" />
-            )}
+            <ConnectButton chainStatus="none" showBalance={false} label="Connect Wallet" />
           </div>
-
-          {/* Mobile menu toggle */}
           <button
             className="md:hidden p-2 rounded-lg text-gray-600 hover:bg-violet-50 transition-colors"
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -103,11 +89,9 @@ export default function Navbar() {
               </Link>
             )
           })}
-          {mounted && (
-            <div className="mt-2 pt-2 border-t border-violet-100">
-              <ConnectButton chainStatus="none" showBalance={false} label="Connect Wallet" />
-            </div>
-          )}
+          <div className="mt-2 pt-2 border-t border-violet-100">
+            <ConnectButton chainStatus="none" showBalance={false} label="Connect Wallet" />
+          </div>
         </div>
       )}
     </nav>

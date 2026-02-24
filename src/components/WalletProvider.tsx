@@ -20,28 +20,22 @@ export const monadMainnet = defineChain({
   },
 })
 
-// Config criado fora do render mas com ssr: true para Next.js
 const wagmiConfig = getDefaultConfig({
   appName: 'MonadBoard',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'monadboard-placeholder',
   chains: [monadMainnet],
-  ssr: true, // essencial para Next.js — evita hydration mismatch
+  ssr: false, // false porque este componente já só roda no client (via dynamic ssr:false)
 })
 
 export function WalletProvider({ children }: { children: ReactNode }) {
-  // QueryClient criado com useState para que cada sessão tenha a sua instância
-  // Isso evita o estado compartilhado entre requisições no servidor
   const [queryClient] = useState(() => new QueryClient({
     defaultOptions: {
-      queries: {
-        staleTime: 1000 * 60, // 60s
-        retry: 1,
-      },
+      queries: { staleTime: 60_000, retry: 1 },
     },
   }))
 
   return (
-    <WagmiProvider config={wagmiConfig} reconnectOnMount={false}>
+    <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider
           theme={lightTheme({
@@ -51,7 +45,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             fontStack: 'system',
           })}
           locale="en-US"
-          coolMode
         >
           {children}
         </RainbowKitProvider>
