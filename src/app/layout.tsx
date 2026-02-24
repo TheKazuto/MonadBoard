@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import Navbar from '@/components/Navbar'
 import BottomBar from '@/components/BottomBar'
+import { WalletProvider } from '@/components/WalletProvider'
 
 export const metadata: Metadata = {
   title: 'MonadBoard — Your Monad Portfolio Dashboard',
@@ -22,11 +23,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen" style={{ background: 'var(--monad-bg)' }}>
-        <Navbar />
-        <main className="page-content pt-16">
-          {children}
-        </main>
-        <BottomBar />
+        <WalletProvider>
+          <Navbar />
+          <main className="page-content pt-16">
+            {children}
+          </main>
+          <BottomBar />
+        </WalletProvider>
       </body>
     </html>
   )
