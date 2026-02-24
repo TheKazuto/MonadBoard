@@ -5,14 +5,13 @@ import TopTokens from '@/components/TopTokens'
 import RecentActivity from '@/components/RecentActivity'
 import FearAndGreed from '@/components/FearAndGreed'
 import TokenExposure from '@/components/TokenExposure'
+import PortfolioHistory from '@/components/PortfolioHistory'
 import {
   mockWalletData, mockDeFiPositions,
-  mockPortfolioHistory,
   formatCurrency, CHART_COLORS
 } from '@/lib/mockData'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
 } from 'recharts'
 import {
   TrendingUp, TrendingDown, RefreshCw, Wallet, Image,
@@ -126,97 +125,6 @@ function DeFiPositions() {
             <p className="text-xs text-gray-400 text-right">{pos.percentage.toFixed(1)}% of DeFi</p>
           </div>
         ))}
-      </div>
-    </div>
-  )
-}
-
-// ─── Portfolio History Chart ─────────────────────────────────────────────────
-type Range = '7d' | '30d' | '90d' | '1y'
-const RANGES: { label: string; key: Range; days: number }[] = [
-  { label: '7D', key: '7d', days: 7 },
-  { label: '30D', key: '30d', days: 30 },
-  { label: '90D', key: '90d', days: 90 },
-  { label: '1Y', key: '1y', days: 365 },
-]
-
-function PortfolioHistory() {
-  const [range, setRange] = useState<Range>('30d')
-  const selectedDays = RANGES.find(r => r.key === range)?.days || 30
-  const data = mockPortfolioHistory.slice(-selectedDays)
-  const first = data[0]?.value || 0
-  const last = data[data.length - 1]?.value || 0
-  const change = ((last - first) / first) * 100
-  const isPositive = change >= 0
-
-  return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h3 className="font-display font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Portfolio History</h3>
-          <div className={`flex items-center gap-1 mt-0.5 text-sm ${isPositive ? 'text-emerald-600' : 'text-red-500'}`}>
-            {isPositive ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-            <span className="font-medium">{isPositive ? '+' : ''}{change.toFixed(2)}% in period</span>
-          </div>
-        </div>
-        <div className="flex gap-1 bg-violet-50 rounded-lg p-1">
-          {RANGES.map(r => (
-            <button
-              key={r.key}
-              onClick={() => setRange(r.key)}
-              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
-                range === r.key ? 'bg-white text-violet-700 shadow-sm' : 'text-gray-500 hover:text-violet-600'
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="h-48">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#836EF9" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#836EF9" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f0ff" vertical={false} />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 10, fill: '#9ca3af' }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => {
-                const d = new Date(v)
-                return selectedDays <= 7 ? d.toLocaleDateString('en', { weekday: 'short' }) : d.toLocaleDateString('en', { month: 'short', day: 'numeric' })
-              }}
-              interval={Math.floor(data.length / 5)}
-            />
-            <YAxis
-              tick={{ fontSize: 10, fill: '#9ca3af' }}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => `$${(v / 1000).toFixed(1)}K`}
-              width={48}
-            />
-            <Tooltip
-              content={({ active, payload, label }) => {
-                if (active && payload && payload.length) {
-                  return (
-                    <div className="chart-tooltip">
-                      <p className="text-xs text-gray-400">{new Date(label).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
-                      <p className="font-bold text-violet-700">{formatCurrency(payload[0].value as number)}</p>
-                    </div>
-                  )
-                }
-                return null
-              }}
-            />
-            <Area type="monotone" dataKey="value" stroke="#836EF9" strokeWidth={2} fill="url(#portfolioGrad)" dot={false} activeDot={{ r: 4, fill: '#836EF9' }} />
-          </AreaChart>
-        </ResponsiveContainer>
       </div>
     </div>
   )
