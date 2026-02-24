@@ -148,7 +148,7 @@ export default function TransactionsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>Transactions</h1>
-          <p className="text-gray-500 text-sm mt-1">Full history and wallet monitoring</p>
+          <p className="text-gray-500 text-sm mt-1">History and wallet monitoring</p>
         </div>
         {isConnected && lastUpdated && (
           <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -204,7 +204,7 @@ export default function TransactionsPage() {
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-700 transition-colors font-medium"
                   >
-                    Ver tudo no MonadScan
+                    See everything on MonadScan
                     <ExternalLink size={11} />
                   </a>
                 )}
@@ -278,7 +278,7 @@ export default function TransactionsPage() {
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
                     >
                       <ChevronLeft size={16} strokeWidth={2.5} />
-                      <span>Anterior</span>
+                      <span>Previous</span>
                     </button>
 
                     {/* Center: range + dots */}
@@ -310,7 +310,7 @@ export default function TransactionsPage() {
                       disabled={page === totalPages}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
                     >
-                      <span>Próximas</span>
+                      <span>Next</span>
                       <ChevronRight size={16} strokeWidth={2.5} />
                     </button>
                   </div>
