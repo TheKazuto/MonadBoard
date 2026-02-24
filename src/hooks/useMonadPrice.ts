@@ -5,15 +5,17 @@ import { useState, useEffect, useCallback } from 'react'
 interface MonadPrice {
   price: number
   change24h: number
+  changeAmount: number
   loading: boolean
   error: boolean
   lastUpdated: Date | null
 }
 
-export function useMonadPrice(refreshInterval = 30000): MonadPrice {
+export function useMonadPrice(refreshInterval = 60_000): MonadPrice {
   const [data, setData] = useState<MonadPrice>({
     price: 0,
     change24h: 0,
+    changeAmount: 0,
     loading: true,
     error: false,
     lastUpdated: null,
@@ -21,20 +23,20 @@ export function useMonadPrice(refreshInterval = 30000): MonadPrice {
 
   const fetchPrice = useCallback(async () => {
     try {
-      const res = await fetch(
-        'https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd&include_24hr_change=true',
-        { cache: 'no-store' }
-      )
-      if (!res.ok) throw new Error('fetch failed')
+      // Calls our own Next.js API route — server handles CoinGecko and caches the result
+      const res = await fetch('/api/mon-price')
+      if (!res.ok) throw new Error(`/api/mon-price ${res.status}`)
+
       const json = await res.json()
-      const token = json['monad']
-      if (!token) throw new Error('not found')
+      if (json.error) throw new Error(json.error)
+
       setData({
-        price: token.usd,
-        change24h: token.usd_24h_change,
-        loading: false,
-        error: false,
-        lastUpdated: new Date(),
+        price:        json.price,
+        change24h:    json.change24h,
+        changeAmount: json.changeAmount,
+        loading:      false,
+        error:        false,
+        lastUpdated:  new Date(),
       })
     } catch {
       setData(prev => ({ ...prev, loading: false, error: true }))
