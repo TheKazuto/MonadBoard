@@ -193,6 +193,7 @@ export default function PortfolioPage() {
   const [nftValue, setNftValue]     = useState(0)
   const [nftsLoading, setNL]        = useState(false)
   const [nftsError, setNE]          = useState(false)
+  const [nftsNoKey, setNftsNoKey]   = useState(false)
   const [nftView, setNftView]       = useState<'grid' | 'list'>('grid')
 
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -211,10 +212,11 @@ export default function PortfolioPage() {
   }, [])
 
   const fetchNFTs = useCallback(async (addr: string) => {
-    setNL(true); setNE(false)
+    setNL(true); setNE(false); setNftsNoKey(false)
     try {
       const res  = await fetch(`/api/nfts?address=${addr}`)
       const data = await res.json()
+      if (data.error === 'no_api_key') { setNftsNoKey(true); return }
       if (data.error) throw new Error(data.error)
       setNfts(data.nfts ?? [])
       setNftTotal(data.total ?? 0)
@@ -402,7 +404,17 @@ export default function PortfolioPage() {
 
             <div className="p-5">
               {nftsLoading && nfts.length === 0 && <NFTGridSkeleton />}
-              {!nftsLoading && nftsError && <EmptyState icon={<RefreshCw size={22} />} title="Failed to load NFTs" />}
+              {!nftsLoading && nftsNoKey && (
+                <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+                  <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center">
+                    <span className="text-amber-400 text-lg">🔑</span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-600">Etherscan API key required</p>
+                  <p className="text-xs text-gray-400 max-w-xs">Add <code className="bg-gray-100 px-1 rounded text-violet-600 font-mono">ETHERSCAN_API_KEY</code> to your Vercel environment variables to enable NFT detection.</p>
+                  <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" className="text-xs text-violet-500 hover:text-violet-700 underline">Get a free key →</a>
+                </div>
+              )}
+              {!nftsLoading && !nftsNoKey && nftsError && <EmptyState icon={<RefreshCw size={22} />} title="Failed to load NFTs" />}
               {!nftsLoading && !nftsError && nfts.length === 0 && (
                 <EmptyState icon={<ImageIcon size={22} />} title="No NFTs found" subtitle="NFTs you own on Monad will appear here" />
               )}

@@ -2,14 +2,20 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export const revalidate = 0
 
-const RPC         = 'https://rpc.monad.xyz'
-const ME_BASE     = 'https://api-mainnet.magiceden.dev/v3/rtp/monad'
-const MONAD_SCAN  = 'https://api.monadexplorer.com/api/v2'  // Blockscout-compatible
+const RPC = 'https://rpc.monad.xyz'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function resolveURI(uri: string): string {
-  if (!uri) return ''
-  return uri.startsWith('ipfs://') ? uri.replace('ipfs://', 'https://ipfs.io/ipfs/') : uri
+// ─── RPC helpers ──────────────────────────────────────────────────────────────
+async function rpcBatch(calls: object[]): Promise<any[]> {
+  if (!calls.length) return []
+  const res = await fetch(RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(calls),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10_000),
+  })
+  const data = await res.json()
+  return Array.isArray(data) ? data : [data]
 }
 
 function padUint256(n: bigint) {
@@ -19,345 +25,238 @@ function padUint256(n: bigint) {
 function decodeString(hex: string): string {
   try {
     if (!hex || hex === '0x') return ''
-    const bytes = Buffer.from(hex.slice(2), 'hex')
-    if (bytes.length < 64) return ''
-    const len = Number(BigInt('0x' + bytes.slice(32, 64).toString('hex')))
-    return bytes.slice(64, 64 + len).toString('utf8').replace(/\0/g, '')
+    const b = Buffer.from(hex.slice(2), 'hex')
+    if (b.length < 64) return ''
+    const len = Number(BigInt('0x' + b.slice(32, 64).toString('hex')))
+    return b.slice(64, 64 + len).toString('utf8').replace(/\0/g, '')
   } catch { return '' }
 }
 
-async function rpcCall(method: string, params: unknown[]): Promise<any> {
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', method, params, id: 1 }),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(8000),
-  })
-  return (await res.json())?.result
+function resolveURI(uri: string): string {
+  if (!uri) return ''
+  return uri.startsWith('ipfs://') ? uri.replace('ipfs://', 'https://ipfs.io/ipfs/') : uri
 }
 
-async function rpcBatch(calls: object[]): Promise<any[]> {
-  if (!calls.length) return []
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(calls),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(10000),
-  })
+// ─── Step 1: discover NFTs via Etherscan V2 tokennfttx ────────────────────────
+// Returns map of contractAddress → Set<tokenId as bigint>
+async function discoverNFTs(address: string, apiKey: string): Promise<Map<string, Set<bigint>>> {
+  const url = `https://api.etherscan.io/v2/api?chainid=10143&module=account&action=tokennfttx&address=${address}&page=1&offset=100&sort=desc&apikey=${apiKey}`
+  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
+  if (!res.ok) throw new Error(`Etherscan HTTP ${res.status}`)
   const data = await res.json()
-  return Array.isArray(data) ? data : [data]
+
+  // status '0' with NOTX message = valid empty result
+  if (data.status !== '1') {
+    if (data.message === 'No transactions found') return new Map()
+    throw new Error(`Etherscan: ${data.message}`)
+  }
+
+  const txs: any[] = data.result
+  const addrLower  = address.toLowerCase()
+
+  // Build a map of token → last known owner direction
+  // Use a map keyed by (contract, tokenId) → last tx (sorted desc = most recent first)
+  const lastTx = new Map<string, any>()
+  for (const tx of txs) {
+    const key = `${tx.contractAddress.toLowerCase()}_${BigInt(tx.tokenID).toString()}`
+    if (!lastTx.has(key)) lastTx.set(key, tx) // first = most recent (sort=desc)
+  }
+
+  // Keep only tokens where the most recent transfer was TO our address
+  const owned = new Map<string, Set<bigint>>()
+  for (const [, tx] of lastTx) {
+    if (tx.to?.toLowerCase() !== addrLower) continue
+    const contract = tx.contractAddress.toLowerCase()
+    if (!owned.has(contract)) owned.set(contract, new Set())
+    owned.get(contract)!.add(BigInt(tx.tokenID))
+  }
+
+  return owned
 }
 
-async function fetchMetadata(uri: string) {
+// ─── Step 2: verify current ownership via ownerOf RPC ────────────────────────
+async function verifyOwnership(
+  candidates: Map<string, Set<bigint>>,
+  address: string
+): Promise<{ contract: string; tokenId: bigint }[]> {
+  const SEL_OWNER = '0x6352211e'
+  const checks: { contract: string; tokenId: bigint; call: object }[] = []
+
+  for (const [contract, ids] of candidates) {
+    for (const tokenId of ids) {
+      checks.push({
+        contract, tokenId,
+        call: {
+          jsonrpc: '2.0', method: 'eth_call',
+          params: [{ to: contract, data: SEL_OWNER + padUint256(tokenId) }, 'latest'],
+          id: checks.length,
+        },
+      })
+    }
+  }
+
+  if (!checks.length) return []
+
+  // Batch in chunks of 20 to be gentle with the RPC
+  const results: any[] = []
+  for (let i = 0; i < checks.length; i += 20) {
+    const chunk = await rpcBatch(checks.slice(i, i + 20).map(c => c.call))
+    results.push(...chunk)
+  }
+
+  const addrLower = address.toLowerCase()
+  return checks.filter((c, i) => {
+    const r = results[i]?.result
+    return r && r.length >= 26 && ('0x' + r.slice(-40)).toLowerCase() === addrLower
+  }).map(c => ({ contract: c.contract, tokenId: c.tokenId }))
+}
+
+// ─── Step 3: fetch name/symbol/tokenURI for each token ───────────────────────
+async function fetchOnChainMeta(owned: { contract: string; tokenId: bigint }[]) {
+  const SEL_NAME    = '0x06fdde03'
+  const SEL_SYMBOL  = '0x95d89b41'
+  const SEL_URI     = '0xc87b56dd'
+  const contracts   = [...new Set(owned.map(t => t.contract))]
+
+  const [nameRes, symRes, uriRes] = await Promise.all([
+    rpcBatch(contracts.map((a, i) => ({ jsonrpc:'2.0', method:'eth_call', params:[{to:a,data:SEL_NAME},'latest'], id:i }))),
+    rpcBatch(contracts.map((a, i) => ({ jsonrpc:'2.0', method:'eth_call', params:[{to:a,data:SEL_SYMBOL},'latest'], id:i }))),
+    rpcBatch(owned.map(({ contract, tokenId }, i) => ({ jsonrpc:'2.0', method:'eth_call', params:[{to:contract,data:SEL_URI+padUint256(tokenId)},'latest'], id:i }))),
+  ])
+
+  const cMeta: Record<string, { name: string; symbol: string }> = {}
+  contracts.forEach((a, i) => {
+    cMeta[a] = { name: decodeString(nameRes[i]?.result ?? ''), symbol: decodeString(symRes[i]?.result ?? '') }
+  })
+
+  return { cMeta, uriRes }
+}
+
+// ─── Step 4: fetch token metadata JSON from tokenURI ─────────────────────────
+async function fetchTokenMetadata(uri: string): Promise<{ name?: string; image?: string } | null> {
   try {
     const url = resolveURI(uri)
     if (!url || url.startsWith('data:')) return null
-    const res = await fetch(url, { signal: AbortSignal.timeout(4000) })
+    const res = await fetch(url, { signal: AbortSignal.timeout(5_000) })
     if (!res.ok) return null
     return await res.json()
   } catch { return null }
 }
 
-async function getMonPrice(): Promise<number> {
+// ─── Step 5: get floor price from Magic Eden page (no API key needed) ─────────
+// ME embeds collection data in the page's __NEXT_DATA__ JSON
+async function getMEFloorPrice(contractAddress: string): Promise<{ floorMON: number; floorUSD: number }> {
   try {
-    const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd', { next: { revalidate: 60 } })
-    return (await r.json())?.monad?.usd ?? 0
-  } catch { return 0 }
-}
+    // ME collection page for Monad — parses __NEXT_DATA__ which contains stats
+    const url = `https://magiceden.io/collections/monad/${contractAddress}`
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MonadBoard/1.0)',
+        'Accept': 'text/html',
+      },
+      signal: AbortSignal.timeout(6_000),
+      cache: 'no-store',
+    })
+    if (!res.ok) return { floorMON: 0, floorUSD: 0 }
 
-// ─── Try Magic Eden for wallet NFTs ───────────────────────────────────────────
-async function tryMagicEden(address: string, apiKey?: string) {
-  const headers: Record<string, string> = { accept: 'application/json' }
-  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
+    const html = await res.text()
 
-  const res = await fetch(
-    `${ME_BASE}/users/${address}/tokens/v7?limit=50&sortBy=acquiredAt&excludeSpam=true&excludeBurnt=true`,
-    { headers, signal: AbortSignal.timeout(8000), cache: 'no-store' }
-  )
-  if (!res.ok) return null
+    // Extract __NEXT_DATA__ JSON
+    const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([^<]+)<\/script>/)
+    if (!match) return { floorMON: 0, floorUSD: 0 }
 
-  const data = await res.json()
-  const tokens: any[] = data?.tokens ?? []
-  if (!tokens.length) return null   // empty = fall through
+    const nextData = JSON.parse(match[1])
 
-  return { tokens, totalCount: data?.totalCount ?? tokens.length }
-}
+    // Navigate to collection stats — path varies but floorPrice is usually here
+    const props = nextData?.props?.pageProps
+    const stats  = props?.collection?.stats ?? props?.stats ?? props?.collectionStats ?? {}
 
-// ─── Blockscout-compatible NFT tokens endpoint ────────────────────────────────
-async function tryBlockscout(address: string) {
-  // MonadScan/Blockscout: GET /v2/addresses/{address}/nft?type=ERC-721,ERC-1155
-  const res = await fetch(
-    `${MONAD_SCAN}/addresses/${address}/nft?type=ERC-721,ERC-1155&limit=50`,
-    { signal: AbortSignal.timeout(8000), cache: 'no-store' }
-  )
-  if (!res.ok) return null
-  const data = await res.json()
-  const items: any[] = data?.items ?? data?.result ?? []
-  if (!items.length) return null
-  return items
-}
+    // floorPrice is in lamports/wei equivalent — ME usually stores in native token units
+    const floorNative = stats?.floor_price ?? stats?.floorPrice ?? stats?.floor ?? 0
+    const floorUSD    = stats?.floor_price_usd ?? stats?.floorPriceUsd ?? 0
 
-// ─── Etherscan V2 tokennfttx ──────────────────────────────────────────────────
-async function tryEtherscanNFT(address: string, apiKey?: string) {
-  if (!apiKey) return null
-  const url = `https://api.etherscan.io/v2/api?chainid=10143&module=account&action=tokennfttx&address=${address}&page=1&offset=100&sort=desc&apikey=${apiKey}`
-  const res = await fetch(url, { signal: AbortSignal.timeout(8000), cache: 'no-store' })
-  if (!res.ok) return null
-  const data = await res.json()
-  if (data.status !== '1') return null
-
-  // Filter: only txs where `to` = address (received), deduplicate by contractAddress+tokenID
-  const received = (data.result as any[]).filter(tx => tx.to?.toLowerCase() === address.toLowerCase())
-  // Deduplicate: keep last known state (sort by blockNumber desc, first = most recent)
-  const seen = new Map<string, any>()
-  for (const tx of received) {
-    const key = `${tx.contractAddress.toLowerCase()}_${tx.tokenID}`
-    if (!seen.has(key)) seen.set(key, tx)
+    return { floorMON: Number(floorNative) || 0, floorUSD: Number(floorUSD) || 0 }
+  } catch {
+    return { floorMON: 0, floorUSD: 0 }
   }
-  return [...seen.values()]
 }
 
-// ─── RPC fallback: getLogs with small ranges to avoid RPC limits ───────────────
-async function tryRPCLogs(address: string) {
-  const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
-  const paddedAddr = '0x000000000000000000000000' + address.slice(2).toLowerCase()
-
-  const latestHex = await rpcCall('eth_blockNumber', []) as string
-  const latest    = parseInt(latestHex, 16)
-
-  // Scan in small chunks — most RPCs allow max 10k blocks per getLogs call
-  const CHUNK = 10_000
-  const SCAN_BACK = 100_000 // ~34 hours at 1.2s/block
-  const candidates = new Map<string, Set<string>>()
-
-  for (let end = latest; end > latest - SCAN_BACK; end -= CHUNK) {
-    const start = Math.max(0, end - CHUNK)
-    try {
-      const result = await rpcCall('eth_getLogs', [{
-        fromBlock: '0x' + start.toString(16),
-        toBlock:   '0x' + end.toString(16),
-        topics: [TRANSFER_TOPIC, null, paddedAddr],
-      }])
-      if (!Array.isArray(result)) break
-      for (const log of result) {
-        if (log.topics?.length !== 4) continue // only ERC-721
-        const c = log.address.toLowerCase()
-        if (!candidates.has(c)) candidates.set(c, new Set())
-        candidates.get(c)!.add(log.topics[3])
-      }
-    } catch { break }
-  }
-  return candidates
-}
-
-// ─── Verify current ownership ─────────────────────────────────────────────────
-async function verifyOwnership(candidates: Map<string, Set<string>>, address: string) {
-  const SEL_OWNER_OF = '0x6352211e'
-  const checks: { contract: string; tokenId: bigint; call: object }[] = []
-
-  for (const [contract, ids] of candidates) {
-    for (const idHex of ids) {
-      const tokenId = BigInt(idHex)
-      checks.push({
-        contract, tokenId,
-        call: { jsonrpc: '2.0', method: 'eth_call', params: [{ to: contract, data: SEL_OWNER_OF + padUint256(tokenId) }, 'latest'], id: `o${checks.length}` }
-      })
-    }
-  }
-
-  const results: any[] = []
-  for (let i = 0; i < checks.length; i += 50) {
-    results.push(...await rpcBatch(checks.slice(i, i + 50).map(c => c.call)))
-  }
-
-  return checks.filter((c, i) => {
-    const r = results[i]?.result
-    return r && r !== '0x' && ('0x' + r.slice(-40)).toLowerCase() === address.toLowerCase()
-  })
-}
-
-// ─── Enrich tokens with name/image/floor ──────────────────────────────────────
-async function enrichNFTs(
-  owned: { contract: string; tokenId: bigint }[],
-  monPrice: number,
-  apiKey?: string
-) {
-  const SEL_NAME      = '0x06fdde03'
-  const SEL_SYMBOL    = '0x95d89b41'
-  const SEL_TOKEN_URI = '0xc87b56dd'
-
-  const contractAddrs = [...new Set(owned.map(t => t.contract))]
-
-  const [nameRes, symRes, uriRes] = await Promise.all([
-    rpcBatch(contractAddrs.map((a, i) => ({ jsonrpc: '2.0', method: 'eth_call', params: [{ to: a, data: SEL_NAME }, 'latest'], id: `n${i}` }))),
-    rpcBatch(contractAddrs.map((a, i) => ({ jsonrpc: '2.0', method: 'eth_call', params: [{ to: a, data: SEL_SYMBOL }, 'latest'], id: `s${i}` }))),
-    rpcBatch(owned.map(({ contract, tokenId }, i) => ({ jsonrpc: '2.0', method: 'eth_call', params: [{ to: contract, data: SEL_TOKEN_URI + padUint256(tokenId) }, 'latest'], id: `u${i}` }))),
-  ])
-
-  const cMeta: Record<string, { name: string; symbol: string }> = {}
-  contractAddrs.forEach((a, i) => {
-    cMeta[a] = { name: decodeString(nameRes[i]?.result ?? ''), symbol: decodeString(symRes[i]?.result ?? '') }
-  })
-
-  // Floor prices from Magic Eden
-  const floorMap: Record<string, number> = {}
-  await Promise.all(contractAddrs.map(async (contract) => {
-    try {
-      const headers: Record<string, string> = { accept: 'application/json' }
-      if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
-      const r = await fetch(`${ME_BASE}/collections/v7?id=${contract}`, { headers, signal: AbortSignal.timeout(5000), cache: 'no-store' })
-      if (r.ok) {
-        const d = await r.json()
-        floorMap[contract] = d?.collections?.[0]?.floorAsk?.price?.amount?.native ?? 0
-      }
-    } catch { /* ignore */ }
-  }))
-
-  return Promise.all(owned.map(async ({ contract, tokenId }, i) => {
-    const rawUri  = decodeString(uriRes[i]?.result ?? '')
-    const meta    = rawUri ? await fetchMetadata(rawUri) : null
-    const cm      = cMeta[contract] ?? { name: 'Unknown', symbol: '?' }
-    const floorMON = floorMap[contract] ?? 0
-
-    return {
-      id:           `${contract}_${tokenId}`,
-      contract,
-      tokenId:      tokenId.toString(),
-      collection:   cm.name || cm.symbol || contract.slice(0, 10) + '...',
-      symbol:       cm.symbol,
-      name:         meta?.name ?? `${cm.name || cm.symbol} #${tokenId}`,
-      image:        meta?.image ? resolveURI(meta.image) : null,
-      floorMON,
-      floorUSD:     floorMON * monPrice,
-      magicEdenUrl: `https://magiceden.io/item-details/monad/${contract}/${tokenId}`,
-    }
-  }))
-}
-
-// ─── Route ────────────────────────────────────────────────────────────────────
+// ─── Main route ───────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')
   if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return NextResponse.json({ error: 'Invalid address' }, { status: 400 })
   }
 
-  const etherscanKey = process.env.ETHERSCAN_API_KEY
-  const meKey        = process.env.MAGIC_EDEN_API_KEY
+  const apiKey = process.env.ETHERSCAN_API_KEY
+  if (!apiKey) {
+    return NextResponse.json({ error: 'no_api_key', nfts: [], nftValue: 0, total: 0 })
+  }
 
   try {
-    const monPrice = await getMonPrice()
+    // 1. Discover via Etherscan (fast, reliable)
+    const candidates = await discoverNFTs(address, apiKey)
 
-    // ── 1. Try Magic Eden (richest data) ────────────────────────────────────
-    try {
-      const meResult = await tryMagicEden(address, meKey)
-      if (meResult) {
-        const { tokens, totalCount } = meResult
-
-        // Floor prices for unique contracts
-        const contractAddrs = [...new Set(tokens.map((t:any) => (t.token?.contract ?? '').toLowerCase()))]
-        const floorMap: Record<string,number> = {}
-        await Promise.all(contractAddrs.map(async (c) => {
-          try {
-            const headers: Record<string,string> = { accept: 'application/json' }
-            if (meKey) headers['Authorization'] = `Bearer ${meKey}`
-            const r = await fetch(`${ME_BASE}/collections/v7?id=${c}`, { headers, signal: AbortSignal.timeout(5000), cache: 'no-store' })
-            if (r.ok) floorMap[c] = (await r.json())?.collections?.[0]?.floorAsk?.price?.amount?.native ?? 0
-          } catch {}
-        }))
-
-        const nfts = tokens.map((t: any) => {
-          const token    = t.token ?? {}
-          const contract = (token.contract ?? '').toLowerCase()
-          const floorMON = floorMap[contract] ?? 0
-          return {
-            id:           `${contract}_${token.tokenId}`,
-            contract:     token.contract ?? '',
-            tokenId:      token.tokenId ?? '',
-            collection:   token.collection?.name ?? 'Unknown',
-            symbol:       token.collection?.symbol ?? '',
-            name:         token.name ?? `#${token.tokenId}`,
-            image:        token.image ? resolveURI(token.image) : null,
-            floorMON,
-            floorUSD:     floorMON * monPrice,
-            magicEdenUrl: `https://magiceden.io/item-details/monad/${token.contract}/${token.tokenId}`,
-          }
-        })
-
-        return NextResponse.json({ nfts, nftValue: nfts.reduce((s:number,n:any) => s+n.floorUSD,0), total: totalCount, source: 'magiceden' })
-      }
-    } catch (e) {
-      console.log('[nfts] ME failed:', (e as Error).message)
-    }
-
-    // ── 2. Try Blockscout/MonadScan NFT endpoint ─────────────────────────────
-    try {
-      const bsItems = await tryBlockscout(address)
-      if (bsItems && bsItems.length > 0) {
-        const nfts = await Promise.all(bsItems.slice(0, 20).map(async (item: any) => {
-          const contract  = (item.token?.address ?? item.contractAddress ?? '').toLowerCase()
-          const tokenId   = item.id ?? item.tokenId ?? item.token_id ?? '0'
-          const image     = item.image_url ?? item.metadata?.image ?? null
-          const floorMON  = 0 // Blockscout doesn't have floor prices
-
-          return {
-            id:           `${contract}_${tokenId}`,
-            contract,
-            tokenId:      String(tokenId),
-            collection:   item.token?.name ?? item.token?.symbol ?? 'Unknown',
-            symbol:       item.token?.symbol ?? '',
-            name:         item.metadata?.name ?? item.name ?? `#${tokenId}`,
-            image:        image ? resolveURI(String(image)) : null,
-            floorMON,
-            floorUSD:     0,
-            magicEdenUrl: `https://magiceden.io/item-details/monad/${contract}/${tokenId}`,
-          }
-        }))
-
-        return NextResponse.json({ nfts, nftValue: 0, total: bsItems.length, source: 'blockscout' })
-      }
-    } catch (e) {
-      console.log('[nfts] Blockscout failed:', (e as Error).message)
-    }
-
-    // ── 3. Try Etherscan V2 tokennfttx ──────────────────────────────────────
-    try {
-      const ethTxs = await tryEtherscanNFT(address, etherscanKey)
-      if (ethTxs && ethTxs.length > 0) {
-        // Verify current ownership via ownerOf
-        const candidates = new Map<string, Set<string>>()
-        for (const tx of ethTxs) {
-          const c = tx.contractAddress.toLowerCase()
-          if (!candidates.has(c)) candidates.set(c, new Set())
-          candidates.get(c)!.add('0x' + BigInt(tx.tokenID).toString(16).padStart(64, '0'))
-        }
-
-        const owned = await verifyOwnership(candidates, address)
-        if (owned.length > 0) {
-          const nfts = await enrichNFTs(owned.slice(0, 20), monPrice, meKey)
-          return NextResponse.json({ nfts, nftValue: nfts.reduce((s,n) => s+n.floorUSD,0), total: owned.length, source: 'etherscan' })
-        }
-        return NextResponse.json({ nfts: [], nftValue: 0, total: 0, source: 'etherscan' })
-      }
-    } catch (e) {
-      console.log('[nfts] Etherscan failed:', (e as Error).message)
-    }
-
-    // ── 4. RPC getLogs fallback (chunked) ────────────────────────────────────
-    const candidates = await tryRPCLogs(address)
     if (candidates.size === 0) {
-      return NextResponse.json({ nfts: [], nftValue: 0, total: 0, source: 'rpc' })
+      return NextResponse.json({ nfts: [], nftValue: 0, total: 0 })
     }
 
+    // 2. Verify current ownership on-chain
     const owned = await verifyOwnership(candidates, address)
-    if (!owned.length) return NextResponse.json({ nfts: [], nftValue: 0, total: 0, source: 'rpc' })
 
-    const nfts = await enrichNFTs(owned.slice(0, 20), monPrice, meKey)
-    return NextResponse.json({ nfts, nftValue: nfts.reduce((s,n) => s+n.floorUSD,0), total: owned.length, source: 'rpc' })
+    if (owned.length === 0) {
+      return NextResponse.json({ nfts: [], nftValue: 0, total: 0 })
+    }
 
-  } catch (err) {
-    console.error('[nfts] fatal error:', err)
+    // Cap at 20 for performance
+    const cap = owned.slice(0, 20)
+    const total = owned.length
+
+    // 3. Fetch on-chain metadata (name, symbol, tokenURI)
+    const { cMeta, uriRes } = await fetchOnChainMeta(cap)
+
+    // 4. Fetch token JSON metadata + floor prices in parallel
+    const contracts = [...new Set(cap.map(t => t.contract))]
+    const [metaResults, floorResults] = await Promise.all([
+      // Token metadata from tokenURIs
+      Promise.all(cap.map(async ({ contract, tokenId }, i) => {
+        const rawUri = decodeString(uriRes[i]?.result ?? '')
+        return fetchTokenMetadata(rawUri)
+      })),
+      // Floor prices from Magic Eden pages
+      Promise.all(contracts.map(c => getMEFloorPrice(c))),
+    ])
+
+    const floorMap: Record<string, { floorMON: number; floorUSD: number }> = {}
+    contracts.forEach((c, i) => { floorMap[c] = floorResults[i] })
+
+    // 5. Build final NFT list
+    const nfts = cap.map(({ contract, tokenId }, i) => {
+      const cm      = cMeta[contract] ?? { name: 'Unknown', symbol: '?' }
+      const meta    = metaResults[i]
+      const floor   = floorMap[contract] ?? { floorMON: 0, floorUSD: 0 }
+      const rawUri  = decodeString(uriRes[i]?.result ?? '')
+
+      return {
+        id:           `${contract}_${tokenId}`,
+        contract,
+        tokenId:      tokenId.toString(),
+        collection:   cm.name || cm.symbol || contract.slice(0, 10) + '...',
+        symbol:       cm.symbol,
+        name:         meta?.name ?? `${cm.name || cm.symbol} #${tokenId}`,
+        image:        meta?.image ? resolveURI(meta.image) : null,
+        floorMON:     floor.floorMON,
+        floorUSD:     floor.floorUSD,
+        magicEdenUrl: `https://magiceden.io/item-details/monad/${contract}/${tokenId}`,
+      }
+    })
+
+    const nftValue = nfts.reduce((s, n) => s + n.floorUSD, 0)
+
+    return NextResponse.json({ nfts, nftValue, total })
+
+  } catch (err: any) {
+    console.error('[nfts]', err?.message ?? err)
     return NextResponse.json({ error: 'Failed to fetch NFTs' }, { status: 500 })
   }
 }
