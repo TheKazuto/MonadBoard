@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { LayoutDashboard, Wallet, BarChart3, History, User, Menu, X, Zap } from 'lucide-react'
@@ -17,6 +17,9 @@ const navLinks = [
 export default function Navbar() {
   const pathname = usePathname()
   const [mobileOpen, setMobileOpen] = useState(false)
+  // Monta o ConnectButton só no client para evitar hydration mismatch
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-40 glass border-b border-violet-100/60 h-16">
@@ -27,7 +30,10 @@ export default function Navbar() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-lg shadow-violet-200">
             <Zap size={16} className="text-white" fill="white" />
           </div>
-          <span className="font-display font-700 text-lg hidden sm:block" style={{ fontFamily: 'Sora, sans-serif', fontWeight: 700, color: '#200052' }}>
+          <span
+            className="font-display font-700 text-lg hidden sm:block"
+            style={{ fontFamily: 'Sora, sans-serif', fontWeight: 700, color: '#200052' }}
+          >
             Monad<span style={{ color: '#836EF9' }}>Board</span>
           </span>
         </Link>
@@ -53,14 +59,19 @@ export default function Navbar() {
           })}
         </div>
 
-        {/* Connect Wallet — RainbowKit */}
+        {/* Connect Wallet — só renderiza após mount para evitar hydration mismatch */}
         <div className="flex items-center gap-3">
           <div className="hidden md:block">
-            <ConnectButton
-              chainStatus="none"
-              showBalance={false}
-              label="Connect Wallet"
-            />
+            {mounted ? (
+              <ConnectButton
+                chainStatus="none"
+                showBalance={false}
+                label="Connect Wallet"
+              />
+            ) : (
+              // Placeholder com mesma altura/largura para não dar layout shift
+              <div className="h-10 w-36 rounded-xl bg-violet-100 animate-pulse" />
+            )}
           </div>
 
           {/* Mobile menu toggle */}
@@ -92,13 +103,11 @@ export default function Navbar() {
               </Link>
             )
           })}
-          <div className="mt-2 pt-2 border-t border-violet-100">
-            <ConnectButton
-              chainStatus="none"
-              showBalance={false}
-              label="Connect Wallet"
-            />
-          </div>
+          {mounted && (
+            <div className="mt-2 pt-2 border-t border-violet-100">
+              <ConnectButton chainStatus="none" showBalance={false} label="Connect Wallet" />
+            </div>
+          )}
         </div>
       )}
     </nav>

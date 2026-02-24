@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { useMonadPrice } from '@/hooks/useMonadPrice'
 
@@ -47,7 +48,11 @@ const SocialLinks = [
 ]
 
 export default function BottomBar() {
-  const { price, change24h, loading, error } = useMonadPrice(30000)
+  // Guard de mount — evita hydration mismatch no preço (dado dinâmico)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  const { price, change24h, loading, error, lastUpdated } = useMonadPrice(30000)
   const isPositive = change24h >= 0
 
   return (
@@ -56,59 +61,45 @@ export default function BottomBar() {
 
         {/* MON Price */}
         <div className="flex items-center gap-2">
-          {/* Logo — círculo lilás com logo da Monad */}
-          <div
-            className="shrink-0 flex items-center justify-center overflow-hidden"
-            style={{
-              width: 22,
-              height: 22,
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #836EF9 0%, #6d28d9 100%)',
-              boxShadow: '0 1px 4px rgba(131,110,249,0.4)',
-              padding: 3,
-            }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* Logo circle */}
+          <div className="w-6 h-6 rounded-full bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center overflow-hidden shadow shadow-violet-200 shrink-0">
             <img
               src="/monad-logo.png"
               alt="Monad"
-              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+              width={16}
+              height={16}
+              className="object-contain scale-90"
             />
           </div>
 
-          <span style={{ fontFamily: 'Sora, sans-serif', fontWeight: 600, fontSize: 13, color: '#1a1040' }}>
+          <span className="font-display text-sm font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
             MON
           </span>
 
-          {loading ? (
-            <span style={{ fontSize: 12, color: '#9ca3af' }} className="animate-pulse">
-              Loading...
-            </span>
-          ) : error && price === 0 ? (
-            <span style={{ fontSize: 12, color: '#f59e0b' }}>Unavailable</span>
+          {/* Só exibe dados de preço após mount para evitar mismatch SSR/client */}
+          {!mounted ? (
+            <span className="text-sm text-gray-300 w-20 h-4 bg-gray-100 rounded animate-pulse inline-block" />
+          ) : loading && !lastUpdated ? (
+            <span className="text-sm text-gray-400 animate-pulse">Loading...</span>
           ) : (
             <>
-              <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 500, color: '#374151' }}>
-                ${price < 0.01 ? price.toFixed(5) : price.toFixed(4)}
+              <span className="text-sm font-mono font-medium text-gray-700">
+                ${price.toFixed(4)}
               </span>
-              <div
-                className="flex items-center gap-0.5"
-                style={{ fontSize: 11, fontWeight: 600, color: isPositive ? '#059669' : '#ef4444' }}
-              >
+              <div className={`flex items-center gap-0.5 text-xs font-medium ${isPositive ? 'text-emerald-600' : 'text-red-500'}`}>
                 {isPositive ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
                 {isPositive ? '+' : ''}{change24h.toFixed(2)}%
               </div>
               {error && (
-                <span title="Usando preço em cache" style={{ fontSize: 10, color: '#f59e0b' }}>●</span>
+                <span title="Using cached price" className="text-xs text-amber-400 cursor-help">●</span>
               )}
             </>
           )}
 
-          {/* Bolinha verde de live */}
-          <div className="status-dot" style={{ marginLeft: 2 }} />
+          <div className="status-dot ml-0.5" title={lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString()}` : 'Live'} />
         </div>
 
-        {/* Links sociais */}
+        {/* Social Links */}
         <div className="flex items-center gap-0.5">
           {SocialLinks.map((link) => (
             <a
