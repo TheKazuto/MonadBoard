@@ -141,7 +141,7 @@ export default function FearAndGreed() {
   }, [])
 
   return (
-    <div className="card p-5 flex flex-col h-full">
+    <div className="card p-5">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
@@ -167,7 +167,7 @@ export default function FearAndGreed() {
 
       {/* Loading */}
       {loading && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+        <div className="flex flex-col items-center justify-center gap-3 py-6">
           <div className="skeleton w-40 h-24 rounded-xl" />
           <div className="skeleton w-24 h-4 rounded" />
           <div className="grid grid-cols-2 gap-2 w-full mt-2">
@@ -181,7 +181,7 @@ export default function FearAndGreed() {
 
       {/* Error */}
       {!loading && error && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+        <div className="flex flex-col items-center justify-center gap-3 py-6">
           <p className="text-sm text-gray-400">Could not load index</p>
           <button onClick={fetchData} className="btn-primary text-xs px-4 py-2">
             Try again
@@ -191,7 +191,7 @@ export default function FearAndGreed() {
 
       {/* Data */}
       {!loading && !error && data && (
-        <div className="flex flex-col items-center flex-1">
+        <div className="flex flex-col items-center">
           {/* Gauge */}
           <GaugeArc value={data.now.value} />
 
