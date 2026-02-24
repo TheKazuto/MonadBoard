@@ -2,11 +2,12 @@
 
 import { useState } from 'react'
 import TopTokens from '@/components/TopTokens'
+import RecentActivity from '@/components/RecentActivity'
 import FearAndGreed from '@/components/FearAndGreed'
 import {
-  mockWalletData, mockTokens, mockTransactions, mockDeFiPositions,
+  mockWalletData, mockTokens, mockDeFiPositions,
   mockPortfolioHistory,
-  formatCurrency, formatTime, TX_ICONS, TX_COLORS, CHART_COLORS
+  formatCurrency, CHART_COLORS
 } from '@/lib/mockData'
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
@@ -77,46 +78,6 @@ function WalletSummary() {
 }
 
 // ─── Recent Transactions ────────────────────────────────────────────────────
-function RecentTransactions() {
-  const last6 = mockTransactions.slice(0, 6)
-
-  return (
-    <div className="card p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-display font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Recent Activity</h3>
-        <a href="/transactions" className="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-0.5">
-          View all <ChevronRight size={12} />
-        </a>
-      </div>
-      <div className="space-y-3">
-        {last6.map((tx) => {
-          const colorClass = TX_COLORS[tx.type] || 'text-gray-600 bg-gray-50'
-          const icon = TX_ICONS[tx.type] || '•'
-          return (
-            <div key={tx.id} className="flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm shrink-0 ${colorClass}`}>
-                {icon}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 truncate">{tx.amount}</p>
-                <p className="text-xs text-gray-400">
-                  {tx.protocol ? <span className="text-violet-500">{tx.protocol} · </span> : ''}
-                  {formatTime(tx.timestamp)}
-                </p>
-              </div>
-              <div className="text-right shrink-0">
-                <p className={`text-sm font-semibold ${tx.type === 'receive' ? 'text-emerald-600' : tx.type === 'send' ? 'text-red-500' : 'text-gray-700'}`}>
-                  {tx.type === 'receive' ? '+' : tx.type === 'send' ? '-' : ''}{formatCurrency(tx.valueUSD)}
-                </p>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ─── Token Allocation Pie ───────────────────────────────────────────────────
 const CustomTooltip = ({ active, payload }: any) => {
   if (active && payload && payload.length) {
@@ -363,7 +324,7 @@ export default function Dashboard() {
           <WalletSummary />
         </div>
         <div className="lg:col-span-2">
-          <RecentTransactions />
+          <RecentActivity />
         </div>
       </div>
 
