@@ -4,8 +4,9 @@ import { useState } from 'react'
 import TopTokens from '@/components/TopTokens'
 import RecentActivity from '@/components/RecentActivity'
 import FearAndGreed from '@/components/FearAndGreed'
+import TokenExposure from '@/components/TokenExposure'
 import {
-  mockWalletData, mockTokens, mockDeFiPositions,
+  mockWalletData, mockDeFiPositions,
   mockPortfolioHistory,
   formatCurrency, CHART_COLORS
 } from '@/lib/mockData'
@@ -91,50 +92,6 @@ const CustomTooltip = ({ active, payload }: any) => {
     )
   }
   return null
-}
-
-function TokenAllocation() {
-  return (
-    <div className="card p-5">
-      <h3 className="font-display font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>Token Exposure</h3>
-      <div className="flex flex-col sm:flex-row items-center gap-4">
-        <div className="w-48 h-48 shrink-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={mockTokens}
-                cx="50%"
-                cy="50%"
-                innerRadius={52}
-                outerRadius={80}
-                paddingAngle={2}
-                dataKey="value"
-              >
-                {mockTokens.map((_, index) => (
-                  <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<CustomTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="flex-1 space-y-2 w-full">
-          {mockTokens.map((token, i) => (
-            <div key={token.symbol} className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CHART_COLORS[i] }} />
-              <span className="text-sm font-medium text-gray-700 w-14 shrink-0">{token.symbol}</span>
-              <div className="flex-1">
-                <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: `${token.percentage}%`, background: CHART_COLORS[i] }} />
-                </div>
-              </div>
-              <span className="text-xs text-gray-500 w-10 text-right shrink-0">{token.percentage.toFixed(1)}%</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
 }
 
 // ─── DeFi Positions ─────────────────────────────────────────────────────────
@@ -330,7 +287,7 @@ export default function Dashboard() {
 
       {/* Middle Row: Token Allocation + DeFi Positions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <TokenAllocation />
+        <TokenExposure />
         <DeFiPositions />
       </div>
 
