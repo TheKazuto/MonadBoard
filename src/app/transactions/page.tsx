@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { useTransactions, formatTimeAgo, shortenAddr, Transaction } from '@/contexts/TransactionContext'
 
+// ─── Config ───────────────────────────────────────────────────────────────────
 const TYPE_CONFIG: Record<string, { icon: React.ReactNode; bg: string; text: string; label: string }> = {
   receive:  { icon: <ArrowDownLeft size={15} />,  bg: 'bg-emerald-50', text: 'text-emerald-600', label: 'Received' },
   send:     { icon: <ArrowUpRight size={15} />,   bg: 'bg-red-50',     text: 'text-red-500',    label: 'Sent' },
@@ -20,17 +21,19 @@ const TYPE_CONFIG: Record<string, { icon: React.ReactNode; bg: string; text: str
 
 const FILTERS = ['All', 'Receive', 'Send', 'Swap', 'DeFi', 'NFT', 'Contract'] as const
 type Filter = typeof FILTERS[number]
-const PAGE_SIZE = 10
+const PAGE_SIZE = 20
 
 const watchedWallets = [
   { address: '0x1234...5678', label: 'Whale Watch', txCount: 142, lastTx: '5m ago' },
   { address: '0xabcd...ef01', label: 'Monad Team', txCount: 8, lastTx: '2h ago' },
 ]
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 function formatDate(ts: number) {
   return new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+// ─── Row ──────────────────────────────────────────────────────────────────────
 function TxRow({ tx }: { tx: Transaction }) {
   const cfg = TYPE_CONFIG[tx.type] ?? TYPE_CONFIG.contract
   const valueNum = parseFloat(tx.valueNative)
@@ -80,10 +83,11 @@ function TxRow({ tx }: { tx: Transaction }) {
   )
 }
 
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
 function TxSkeleton() {
   return (
     <div className="animate-pulse">
-      {[...Array(6)].map((_, i) => (
+      {[...Array(8)].map((_, i) => (
         <div key={i} className="flex items-center gap-3 px-4 py-3.5 border-b border-gray-50">
           <div className="w-9 h-9 rounded-xl bg-gray-100 shrink-0" />
           <div className="flex-1 space-y-2">
@@ -97,8 +101,9 @@ function TxSkeleton() {
   )
 }
 
+// ─── Main page ────────────────────────────────────────────────────────────────
 export default function TransactionsPage() {
-  const { isConnected } = useAccount()
+  const { address, isConnected } = useAccount()
   const { transactions, status, lastUpdated, refresh } = useTransactions()
 
   const [filter, setFilter] = useState<Filter>('All')
@@ -107,6 +112,7 @@ export default function TransactionsPage() {
   const [watchInput, setWatchInput] = useState('')
   const nftGated = false
 
+  // ── Filter + search ────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     return transactions.filter(tx => {
       if (filter !== 'All' && tx.type !== filter.toLowerCase()) return false
@@ -127,8 +133,11 @@ export default function TransactionsPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageTxs = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
+  const monadScanUrl = address ? `https://monadscan.com/address/${address}` : 'https://monadscan.com'
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>Transactions</h1>
@@ -146,7 +155,10 @@ export default function TransactionsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+        {/* ── Transaction History (2/3) ──────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-4">
+
           {/* Search + Filter */}
           <div className="card p-4 flex flex-col sm:flex-row gap-3">
             <div className="flex-1 relative">
@@ -168,15 +180,37 @@ export default function TransactionsPage() {
             </div>
           </div>
 
-          {/* Tx list */}
+          {/* Tx list card */}
           <div className="card overflow-hidden">
+
+            {/* Card header */}
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-50">
-              <h2 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Transaction History</h2>
-              <span className="text-xs text-gray-400">
-                {(status === 'success' || transactions.length > 0) ? `${filtered.length} transaction${filtered.length !== 1 ? 's' : ''}` : '—'}
-              </span>
+              <h2 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+                Transaction History
+              </h2>
+              <div className="flex items-center gap-3">
+                {/* MonadScan link */}
+                {isConnected && address && (
+                  <a
+                    href={monadScanUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-700 transition-colors font-medium"
+                  >
+                    Ver tudo no MonadScan
+                    <ExternalLink size={11} />
+                  </a>
+                )}
+                <span className="text-xs text-gray-400">
+                  {(status === 'success' || transactions.length > 0)
+                    ? `${filtered.length} transaç${filtered.length !== 1 ? 'ões' : 'ão'}`
+                    : '—'
+                  }
+                </span>
+              </div>
             </div>
 
+            {/* States */}
             {!isConnected && (
               <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
                 <div className="w-12 h-12 rounded-full bg-violet-50 flex items-center justify-center">
@@ -213,6 +247,7 @@ export default function TransactionsPage() {
               </div>
             )}
 
+            {/* Transactions + slide pagination */}
             {isConnected && (status === 'success' || transactions.length > 0) && (
               <>
                 {pageTxs.length > 0
@@ -225,29 +260,50 @@ export default function TransactionsPage() {
                     </div>
                   )
                 }
+
+                {/* ── Slide pagination footer ── */}
                 {filtered.length > PAGE_SIZE && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-gray-50">
-                    <span className="text-xs text-gray-400">Page {page} of {totalPages} · {filtered.length} total</span>
-                    <div className="flex gap-1">
-                      <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                        className="p-1.5 rounded-lg hover:bg-violet-50 text-gray-500 disabled:opacity-30 transition-all">
-                        <ChevronLeft size={15} />
-                      </button>
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        const start = Math.max(1, Math.min(page - 2, totalPages - 4))
-                        const n = start + i
-                        return (
-                          <button key={n} onClick={() => setPage(n)}
-                            className={`w-7 h-7 rounded-lg text-xs font-medium transition-all ${
-                              page === n ? 'bg-violet-600 text-white' : 'hover:bg-violet-50 text-gray-600'
-                            }`}>{n}</button>
-                        )
-                      })}
-                      <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                        className="p-1.5 rounded-lg hover:bg-violet-50 text-gray-500 disabled:opacity-30 transition-all">
-                        <ChevronRight size={15} />
-                      </button>
+                  <div className="flex items-center justify-between px-4 py-3 border-t border-gray-50 bg-gray-50/40">
+                    {/* Prev */}
+                    <button
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-white hover:text-violet-700 hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all border border-transparent hover:border-violet-100"
+                    >
+                      <ChevronLeft size={15} />
+                      Anterior
+                    </button>
+
+                    {/* Page indicator */}
+                    <div className="flex items-center gap-2">
+                      {/* Dots */}
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
+                          <button
+                            key={n}
+                            onClick={() => setPage(n)}
+                            className={`rounded-full transition-all ${
+                              page === n
+                                ? 'w-5 h-2 bg-violet-600'
+                                : 'w-2 h-2 bg-gray-200 hover:bg-violet-300'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-xs text-gray-400 ml-1">
+                        {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} de {filtered.length}
+                      </span>
                     </div>
+
+                    {/* Next */}
+                    <button
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-white hover:text-violet-700 hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all border border-transparent hover:border-violet-100"
+                    >
+                      Próximas
+                      <ChevronRight size={15} />
+                    </button>
                   </div>
                 )}
               </>
@@ -255,8 +311,10 @@ export default function TransactionsPage() {
           </div>
         </div>
 
-        {/* Sidebar */}
+        {/* ── Sidebar (1/3) ─────────────────────────────────────────────── */}
         <div className="space-y-4">
+
+          {/* Watch Wallets */}
           <div className="card p-5 relative">
             {!nftGated && (
               <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-10 text-center p-6"
@@ -265,7 +323,9 @@ export default function TransactionsPage() {
                   <Lock size={24} className="text-white" />
                 </div>
                 <h3 className="font-bold text-gray-800 mb-1" style={{ fontFamily: 'Sora, sans-serif' }}>Premium Feature</h3>
-                <p className="text-sm text-gray-500 mb-4">Hold a <strong className="text-violet-700">MonadBoard NFT</strong> to monitor wallets and receive Telegram alerts.</p>
+                <p className="text-sm text-gray-500 mb-4">
+                  Hold a <strong className="text-violet-700">MonadBoard NFT</strong> to monitor wallets and receive Telegram alerts.
+                </p>
                 <button className="btn-primary text-sm px-5 py-2">Get Your NFT</button>
                 <p className="text-xs text-gray-400 mt-2">Collection launching soon</p>
               </div>
@@ -296,6 +356,7 @@ export default function TransactionsPage() {
             </div>
           </div>
 
+          {/* Telegram Alerts */}
           <div className="card p-5 relative">
             {!nftGated && (
               <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-10 text-center p-6"

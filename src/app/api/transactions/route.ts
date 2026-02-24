@@ -18,8 +18,8 @@ export async function GET(req: NextRequest) {
       const BASE = `https://api.etherscan.io/v2/api?chainid=143&apikey=${apiKey}`
 
       const [txRes, tokenRes] = await Promise.all([
-        fetch(`${BASE}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc`, { cache: 'no-store' }),
-        fetch(`${BASE}&module=account&action=tokentx&address=${address}&startblock=0&endblock=99999999&page=1&offset=20&sort=desc`, { cache: 'no-store' }),
+        fetch(`${BASE}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=100&sort=desc`, { cache: 'no-store' }),
+        fetch(`${BASE}&module=account&action=tokentx&address=${address}&startblock=0&endblock=99999999&page=1&offset=100&sort=desc`, { cache: 'no-store' }),
       ])
 
       const [txData, tokenData] = await Promise.all([txRes.json(), tokenRes.json()])
@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
           isError: false, isToken: true, functionName: '',
         })) : []
 
-        const all = [...normalTxs, ...tokenTxs].sort((a, b) => b.timestamp - a.timestamp).slice(0, 6)
+        const all = [...normalTxs, ...tokenTxs].sort((a, b) => b.timestamp - a.timestamp).slice(0, 100)
         return NextResponse.json({ transactions: all, source: 'etherscan' })
       }
     } catch (e) {
@@ -56,12 +56,10 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── CAMINHO 2: RPC direto via eth_getLogs + eth_getBlockByNumber ────────────
-  // Busca os últimos blocos e pega transações da carteira via RPC público da Monad
+  // ── CAMINHO 2: RPC direto via eth_getLogs ────────────────────────────────────
   try {
     const RPC = 'https://rpc.monad.xyz'
 
-    // Pega o bloco atual
     const blockNumRes = await fetch(RPC, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -71,11 +69,9 @@ export async function GET(req: NextRequest) {
     const blockNumData = await blockNumRes.json()
     const latestBlock = parseInt(blockNumData.result, 16)
 
-    // Busca os últimos 500 blocos em batch para encontrar txs do endereço
     const BLOCKS_TO_SCAN = 500
     const fromBlock = Math.max(0, latestBlock - BLOCKS_TO_SCAN)
 
-    // Usa eth_getLogs para token transfers (ERC-20 Transfer event) TO ou FROM o endereço
     const paddedAddr = '0x000000000000000000000000' + address.slice(2).toLowerCase()
     const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
@@ -107,7 +103,6 @@ export async function GET(req: NextRequest) {
       ...(logsTo.result || []).map((l: any) => ({ ...l, direction: 'receive' })),
     ]
 
-    // Para cada log, busca o timestamp do bloco
     const uniqueBlocks = [...new Set(allLogs.map((l: any) => l.blockNumber))]
     const blockTimestamps: Record<string, number> = {}
 
@@ -124,7 +119,7 @@ export async function GET(req: NextRequest) {
 
     const transactions = allLogs
       .sort((a: any, b: any) => (blockTimestamps[b.blockNumber] || 0) - (blockTimestamps[a.blockNumber] || 0))
-      .slice(0, 6)
+      .slice(0, 100)
       .map((log: any) => ({
         hash: log.transactionHash,
         type: log.direction,
@@ -138,9 +133,7 @@ export async function GET(req: NextRequest) {
         functionName: '',
       }))
 
-    console.log('[tx] rpc fallback found:', transactions.length, 'txs')
     return NextResponse.json({ transactions, source: 'rpc' })
-
   } catch (e) {
     console.error('[tx] rpc error:', e)
   }
