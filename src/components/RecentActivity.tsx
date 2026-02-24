@@ -54,16 +54,23 @@ export default function RecentActivity() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   const fetchTransactions = useCallback(async () => {
     if (!address) return
     setLoading(true)
     setError(false)
+    setErrorMessage('')
     try {
       const res = await fetch(`/api/transactions?address=${address}`)
       if (!res.ok) throw new Error('fetch failed')
       const data = await res.json()
+      if (data.error === 'no_api_key') {
+        setErrorMessage('no_api_key')
+        setLoading(false)
+        return
+      }
       if (data.error) throw new Error(data.error)
 
       // Re-classifica o tipo com base na função chamada
@@ -215,7 +222,27 @@ export default function RecentActivity() {
       )}
 
       {/* No transactions yet */}
-      {isConnected && !loading && !error && transactions.length === 0 && (
+      {isConnected && !loading && !error && errorMessage === 'no_api_key' && (
+        <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
+          <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center mb-1">
+            <span className="text-amber-400 text-lg">🔑</span>
+          </div>
+          <p className="text-sm font-medium text-gray-600">API Key required</p>
+          <p className="text-xs text-gray-400 max-w-[200px]">
+            Add <code className="bg-gray-100 px-1 rounded text-violet-600">ETHERSCAN_API_KEY</code> in Vercel environment variables
+          </p>
+          <a
+            href="https://etherscan.io/apis"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-violet-500 hover:text-violet-700 underline mt-1"
+          >
+            Get free key →
+          </a>
+        </div>
+      )}
+
+      {isConnected && !loading && !error && errorMessage !== 'no_api_key' && transactions.length === 0 && (
         <div className="flex flex-col items-center justify-center py-8 text-center gap-2">
           <p className="text-sm text-gray-400">No transactions found</p>
           <p className="text-xs text-gray-300">Your activity will appear here</p>
