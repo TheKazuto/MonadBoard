@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useAccount } from 'wagmi'
 import {
   Search, RefreshCw, ArrowDownLeft, ArrowUpRight,
@@ -111,6 +111,7 @@ export default function TransactionsPage() {
   const [page, setPage] = useState(1)
   const [watchInput, setWatchInput] = useState('')
   const nftGated = false
+  const listRef = useRef<HTMLDivElement>(null)
 
   // ── Filter + search ────────────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -126,6 +127,12 @@ export default function TransactionsPage() {
       return true
     })
   }, [transactions, filter, search])
+
+  const goToPage = (n: number) => {
+    setPage(n)
+    // Scroll to top of list smoothly
+    listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const handleFilterChange = (f: Filter) => { setFilter(f); setPage(1) }
   const handleSearchChange = (v: string) => { setSearch(v); setPage(1) }
@@ -181,7 +188,7 @@ export default function TransactionsPage() {
           </div>
 
           {/* Tx list card */}
-          <div className="card overflow-hidden">
+          <div ref={listRef} className="card overflow-hidden">
 
             {/* Card header */}
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-50">
@@ -251,7 +258,7 @@ export default function TransactionsPage() {
             {isConnected && (status === 'success' || transactions.length > 0) && (
               <>
                 {pageTxs.length > 0
-                  ? pageTxs.map(tx => <TxRow key={tx.hash + tx.timestamp} tx={tx} />)
+                  ? pageTxs.map((tx, i) => <TxRow key={(page - 1) * PAGE_SIZE + i} tx={tx} />)
                   : (
                     <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
                       <p className="text-sm text-gray-400">
@@ -263,46 +270,48 @@ export default function TransactionsPage() {
 
                 {/* ── Slide pagination footer ── */}
                 {filtered.length > PAGE_SIZE && (
-                  <div className="flex items-center justify-between px-4 py-3 border-t border-gray-50 bg-gray-50/40">
-                    {/* Prev */}
+                  <div className="flex items-center justify-between px-4 py-3 border-t border-gray-50 bg-gray-50/30">
+                    {/* Prev arrow */}
                     <button
-                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      onClick={() => goToPage(page - 1)}
                       disabled={page === 1}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-white hover:text-violet-700 hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all border border-transparent hover:border-violet-100"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
                     >
-                      <ChevronLeft size={15} />
-                      Anterior
+                      <ChevronLeft size={16} strokeWidth={2.5} />
+                      <span>Anterior</span>
                     </button>
 
-                    {/* Page indicator */}
-                    <div className="flex items-center gap-2">
-                      {/* Dots */}
+                    {/* Center: range + dots */}
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span className="text-xs font-medium text-gray-500">
+                        {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}
+                        <span className="text-gray-300 mx-1">/</span>
+                        {filtered.length}
+                      </span>
                       <div className="flex items-center gap-1">
                         {Array.from({ length: totalPages }, (_, i) => i + 1).map(n => (
                           <button
                             key={n}
-                            onClick={() => setPage(n)}
-                            className={`rounded-full transition-all ${
+                            onClick={() => goToPage(n)}
+                            aria-label={`Page ${n}`}
+                            className={`rounded-full transition-all duration-200 ${
                               page === n
-                                ? 'w-5 h-2 bg-violet-600'
+                                ? 'w-4 h-2 bg-violet-600'
                                 : 'w-2 h-2 bg-gray-200 hover:bg-violet-300'
                             }`}
                           />
                         ))}
                       </div>
-                      <span className="text-xs text-gray-400 ml-1">
-                        {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} de {filtered.length}
-                      </span>
                     </div>
 
-                    {/* Next */}
+                    {/* Next arrow */}
                     <button
-                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      onClick={() => goToPage(page + 1)}
                       disabled={page === totalPages}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-white hover:text-violet-700 hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all border border-transparent hover:border-violet-100"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
                     >
-                      Próximas
-                      <ChevronRight size={15} />
+                      <span>Próximas</span>
+                      <ChevronRight size={16} strokeWidth={2.5} />
                     </button>
                   </div>
                 )}

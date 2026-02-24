@@ -84,10 +84,15 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
       }
       if (data.error) throw new Error(data.error)
 
-      const enriched: Transaction[] = (data.transactions ?? []).map((tx: Transaction) => ({
-        ...tx,
-        type: classifyType(tx, addr),
-      }))
+      const enriched: Transaction[] = (data.transactions ?? [])
+        .map((tx: Transaction) => ({
+          ...tx,
+          type: classifyType(tx, addr),
+        }))
+        // Deduplicate by hash (keep first occurrence)
+        .filter((tx, i, arr) => arr.findIndex(t => t.hash === tx.hash) === i)
+        // Always sort newest first — stable order, never shuffles on re-render
+        .sort((a, b) => b.timestamp - a.timestamp)
 
       setTransactions(enriched)
       setLastUpdated(new Date())
