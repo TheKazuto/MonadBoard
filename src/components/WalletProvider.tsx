@@ -5,6 +5,7 @@ import { WagmiProvider } from 'wagmi'
 import { defineChain } from 'viem'
 import { RainbowKitProvider, getDefaultConfig, lightTheme } from '@rainbow-me/rainbowkit'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { TransactionProvider } from '@/contexts/TransactionContext'
 
 import '@rainbow-me/rainbowkit/styles.css'
 
@@ -24,7 +25,7 @@ const wagmiConfig = getDefaultConfig({
   appName: 'MonadBoard',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'monadboard-placeholder',
   chains: [monadMainnet],
-  ssr: false, // false porque este componente já só roda no client (via dynamic ssr:false)
+  ssr: false,
 })
 
 export function WalletProvider({ children }: { children: ReactNode }) {
@@ -46,7 +47,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           })}
           locale="en-US"
         >
-          {children}
+          {/* TransactionProvider inside so it has access to useAccount from Wagmi */}
+          <TransactionProvider>
+            {children}
+          </TransactionProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
