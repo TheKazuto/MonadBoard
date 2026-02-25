@@ -56,6 +56,53 @@ async function getMonPrice(): Promise<number> {
   } catch { return 0 }
 }
 
+// ─── Multi-token prices via CoinGecko ────────────────────────────────────────
+// Maps symbol → CoinGecko id
+const COINGECKO_IDS: Record<string, string> = {
+  WMON:   'monad',
+  MON:    'monad',
+  sMON:   'monad',
+  gMON:   'monad',
+  shMON:  'monad',
+  WETH:   'ethereum',
+  WBTC:   'wrapped-bitcoin',
+  USDC:   'usd-coin',
+  USDT0:  'tether',
+  AUSD:   'ausd',
+}
+
+async function getTokenPricesUSD(symbols: string[]): Promise<Record<string, number>> {
+  // Stablecoins we can resolve without an API call
+  const stables: Record<string, number> = { USDC: 1, USDT0: 1, AUSD: 1, USDT: 1, DAI: 1 }
+  const prices: Record<string, number> = {}
+
+  // Seed stablecoins immediately
+  for (const sym of symbols) {
+    if (stables[sym] !== undefined) prices[sym] = stables[sym]
+  }
+
+  const toFetch = symbols.filter(s => prices[s] === undefined)
+  if (!toFetch.length) return prices
+
+  // Collect unique CoinGecko IDs
+  const ids = [...new Set(toFetch.map(s => COINGECKO_IDS[s]).filter(Boolean))]
+  if (!ids.length) return prices
+
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(',')}&vs_currencies=usd`,
+      { next: { revalidate: 60 } }
+    )
+    const data = await res.json()
+    for (const sym of toFetch) {
+      const id = COINGECKO_IDS[sym]
+      if (id && data[id]?.usd) prices[sym] = data[id].usd
+    }
+  } catch { /* return what we have */ }
+
+  return prices
+}
+
 // ─── NEVERLAND (Aave V3) ─────────────────────────────────────────────────────
 const NEVERLAND_POOL = '0x3c1B89Db834A833D0Cf48Ed8d36C70bFf8f1E1E1'
 const NEVERLAND_NTOKENS: Record<string, { symbol: string; decimals: number }> = {
@@ -116,6 +163,42 @@ async function fetchNeverland(user: string): Promise<any[]> {
     if (amount >= 0.001) borrowList.push({ symbol: info.symbol, amount })
   })
   if (!supplyList.length && !borrowList.length) return []
+
+  // ── Fallback: if oracle returned 0, calculate USD from token prices ─────────
+  if (totalCollateralUSD === 0 && supplyList.length > 0) {
+    const allSymbols = [...supplyList, ...borrowList].map((t: any) => t.symbol)
+    const prices = await getTokenPricesUSD(allSymbols)
+
+    let calcCollateral = 0
+    for (const s of supplyList) {
+      const price = prices[s.symbol] ?? 0
+      s.amountUSD = s.amount * price
+      calcCollateral += s.amountUSD
+    }
+    let calcDebt = 0
+    for (const b of borrowList) {
+      const price = prices[b.symbol] ?? 0
+      b.amountUSD = b.amount * price
+      calcDebt += b.amountUSD
+    }
+    totalCollateralUSD = calcCollateral
+    totalDebtUSD       = calcDebt
+  } else {
+    // Oracle worked — distribute USD proportionally across tokens
+    const totalRaw = supplyList.reduce((s: number, t: any) => s + t.amount, 0)
+    if (totalRaw > 0 && totalCollateralUSD > 0) {
+      for (const s of supplyList) {
+        s.amountUSD = (s.amount / totalRaw) * totalCollateralUSD
+      }
+    }
+    const debtRaw = borrowList.reduce((s: number, t: any) => s + t.amount, 0)
+    if (debtRaw > 0 && totalDebtUSD > 0) {
+      for (const b of borrowList) {
+        b.amountUSD = (b.amount / debtRaw) * totalDebtUSD
+      }
+    }
+  }
+
   return [{
     protocol: 'Neverland', type: 'lending', logo: '🌙',
     url: 'https://app.neverland.money', chain: 'Monad',
