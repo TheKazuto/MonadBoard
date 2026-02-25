@@ -141,15 +141,17 @@ async function fetchNeverland(user: string): Promise<any[]> {
     const w = Array.from({ length: 6 }, (_, i) => hex.slice(i * 64, (i + 1) * 64))
     totalCollateralUSD = Number(BigInt('0x' + w[0])) / 1e8
     totalDebtUSD       = Number(BigInt('0x' + w[1])) / 1e8
-    const hfRaw        = BigInt('0x' + w[5])
-    const MAX = BigInt('0x' + 'f'.repeat(64))
-    // type(uint256).max means no debt → safe
-    if (hfRaw >= MAX / 2n) {
-      healthFactor = 999
-    } else if (hfRaw > 0n) {
-      healthFactor = Number(hfRaw) / 1e18
+    // w[3] = currentLiquidationThreshold in basis points (e.g. 8500 = 85%)
+    const liqThreshold = Number(BigInt('0x' + w[3])) / 10000
+    // Exact Aave V3 formula: HF = (collateral × liqThreshold) / debt
+    // This matches what the Neverland UI shows
+    const debtBase = Number(BigInt('0x' + w[1]))
+    if (debtBase > 0) {
+      const collBase = Number(BigInt('0x' + w[0]))
+      healthFactor = (collBase * liqThreshold) / debtBase
+    } else {
+      healthFactor = 999 // no debt = safe
     }
-    // hfRaw === 0n means oracle didn't set it — we'll compute below
   }
 
   const supplyList: any[] = []
@@ -190,13 +192,20 @@ async function fetchNeverland(user: string): Promise<any[]> {
     totalCollateralUSD = calcCollateral
     totalDebtUSD       = calcDebt
 
-    // Compute health factor from USD values (assume avg LTV of 0.8 for Aave V3)
+    // Compute HF using actual liqThreshold from oracle if available, else estimate
     if (healthFactor === null) {
       if (calcDebt <= 0) {
         healthFactor = borrowList.length > 0 ? 999 : null
       } else {
-        // HF = (collateral × liquidationThreshold) / debt — use 0.8 as conservative estimate
-        healthFactor = (calcCollateral * 0.8) / calcDebt
+        // Try to get liqThreshold from getUserAccountData w[3] even if collateral was 0
+        let liqThreshold = 0.8 // fallback estimate
+        if (acctRes?.result && acctRes.result !== '0x') {
+          const hex = acctRes.result.slice(2)
+          const w3 = hex.slice(3 * 64, 4 * 64)
+          const lt = Number(BigInt('0x' + w3))
+          if (lt > 0) liqThreshold = lt / 10000
+        }
+        healthFactor = (calcCollateral * liqThreshold) / calcDebt
       }
     }
   } else {
