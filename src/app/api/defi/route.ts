@@ -143,7 +143,13 @@ async function fetchNeverland(user: string): Promise<any[]> {
     totalDebtUSD       = Number(BigInt('0x' + w[1])) / 1e8
     const hfRaw        = BigInt('0x' + w[5])
     const MAX = BigInt('0x' + 'f'.repeat(64))
-    healthFactor = hfRaw >= MAX / 2n ? 999 : Number(hfRaw) / 1e18
+    // type(uint256).max means no debt → safe
+    if (hfRaw >= MAX / 2n) {
+      healthFactor = 999
+    } else if (hfRaw > 0n) {
+      healthFactor = Number(hfRaw) / 1e18
+    }
+    // hfRaw === 0n means oracle didn't set it — we'll compute below
   }
 
   const supplyList: any[] = []
@@ -183,6 +189,16 @@ async function fetchNeverland(user: string): Promise<any[]> {
     }
     totalCollateralUSD = calcCollateral
     totalDebtUSD       = calcDebt
+
+    // Compute health factor from USD values (assume avg LTV of 0.8 for Aave V3)
+    if (healthFactor === null) {
+      if (calcDebt <= 0) {
+        healthFactor = borrowList.length > 0 ? 999 : null
+      } else {
+        // HF = (collateral × liquidationThreshold) / debt — use 0.8 as conservative estimate
+        healthFactor = (calcCollateral * 0.8) / calcDebt
+      }
+    }
   } else {
     // Oracle worked — distribute USD proportionally across tokens
     const totalRaw = supplyList.reduce((s: number, t: any) => s + t.amount, 0)
@@ -205,7 +221,8 @@ async function fetchNeverland(user: string): Promise<any[]> {
     supply: supplyList, borrow: borrowList,
     totalCollateralUSD, totalDebtUSD,
     netValueUSD: totalCollateralUSD - totalDebtUSD,
-    healthFactor: borrowList.length > 0 ? healthFactor : null,
+    // Show HF only when there's active debt; null when no borrow
+    healthFactor: (borrowList.length > 0 && totalDebtUSD > 0) ? healthFactor : null,
   }]
 }
 
