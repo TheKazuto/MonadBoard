@@ -95,11 +95,16 @@ export default function PortfolioHistory() {
   async function fetchRange(r: Range, force = false) {
     if (!stableAddress) return
     const days = RANGES.find(x => x.key === r)!.days
+    // Use cached if available and not forced
+    const cacheKey = `/api/portfolio-history?days=${days}`
+    if (!force) {
+      const cached = getCached<ApiResponse>(cacheKey, stableAddress)
+      if (cached) { setData(prev => ({ ...prev, [r]: cached })); return }
+    }
     setLoading(prev => ({ ...prev, [r]: true }))
     setError(false)
     try {
-      const res = await fetch(`/api/portfolio-history?address=${stableAddress}&days=${days}`)
-      const json: ApiResponse = await res.json()
+      const json = await cachedFetch<ApiResponse>(cacheKey, stableAddress, force)
       if ((json as any).error) throw new Error((json as any).error)
       setData(prev => ({ ...prev, [r]: json }))
     } catch {

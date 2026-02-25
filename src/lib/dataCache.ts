@@ -38,7 +38,8 @@ export async function cachedFetch<T>(
   }
 
   // Fire new request
-  const promise = fetch(`${endpoint}?address=${address}`)
+  const sep = endpoint.includes("?") ? "&" : "?"
+  const promise = fetch(`${endpoint}${sep}address=${address}`)
     .then(r => r.json())
     .then(data => {
       store.set(k, { data, fetchedAt: Date.now(), promise: null })
