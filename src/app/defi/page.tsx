@@ -2,270 +2,378 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAccount } from 'wagmi'
+import { RefreshCw, TrendingUp, TrendingDown, Zap, ExternalLink, AlertCircle } from 'lucide-react'
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtUSD(n: number): string {
-  if (n === 0) return '$0.00'
-  if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
-  if (Math.abs(n) >= 1_000)     return `$${(n / 1_000).toFixed(2)}K`
-  return `$${n.toFixed(2)}`
+  if (!n && n !== 0) return '—'
+  const abs = Math.abs(n)
+  const sign = n < 0 ? '-' : ''
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
+  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(2)}K`
+  if (abs >= 0.01)      return `${sign}$${abs.toFixed(2)}`
+  return `${sign}$${abs.toFixed(4)}`
 }
-function fmtPct(n: number): string {
-  return n !== null && n !== undefined ? `${n.toFixed(2)}%` : '—'
+function fmtPct(n: number | null): string {
+  if (n === null || n === undefined) return '—'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
 }
-function hfColor(hf: number | null): string {
-  if (hf === null || hf === undefined) return 'text-slate-400'
-  if (hf >= 3)   return 'text-emerald-400'
-  if (hf >= 1.5) return 'text-green-400'
-  if (hf >= 1.1) return 'text-yellow-400'
-  return 'text-red-400'
-}
-function hfLabel(hf: number | null): string {
-  if (hf === null || hf === undefined) return ''
-  if (hf >= 999) return 'Safe ∞'
-  if (hf >= 3)   return `${hf.toFixed(2)} Safe`
-  if (hf >= 1.5) return `${hf.toFixed(2)} Healthy`
-  if (hf >= 1.1) return `${hf.toFixed(2)} Caution`
-  return `${hf.toFixed(2)} At Risk`
-}
-function hfBg(hf: number | null): string {
-  if (hf === null || hf === undefined) return 'bg-slate-800 border-slate-700'
-  if (hf >= 3)   return 'bg-emerald-900/30 border-emerald-600'
-  if (hf >= 1.5) return 'bg-green-900/30 border-green-600'
-  if (hf >= 1.1) return 'bg-yellow-900/30 border-yellow-600'
-  return 'bg-red-900/30 border-red-600'
+function fmtApy(n: number | null): string {
+  if (!n || n <= 0) return ''
+  return `${n.toFixed(2)}%`
 }
 
-// ─── Components ───────────────────────────────────────────────────────────────
+// Health factor styling
+function hfConfig(hf: number | null) {
+  if (hf === null || hf === undefined) return null
+  if (hf >= 999) return { label: 'Safe', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', display: '∞' }
+  if (hf >= 3)   return { label: 'Safe',    color: 'text-emerald-600', bg: 'bg-emerald-50',  border: 'border-emerald-200', display: hf.toFixed(2) }
+  if (hf >= 1.5) return { label: 'Healthy', color: 'text-green-600',   bg: 'bg-green-50',    border: 'border-green-200',   display: hf.toFixed(2) }
+  if (hf >= 1.1) return { label: 'Caution', color: 'text-amber-600',   bg: 'bg-amber-50',    border: 'border-amber-200',   display: hf.toFixed(2) }
+  return          { label: 'Risk',    color: 'text-red-600',    bg: 'bg-red-50',      border: 'border-red-200',     display: hf.toFixed(2) }
+}
 
-function ApyBadge({ apy, label }: { apy: number | null; label?: string }) {
-  if (!apy || apy <= 0) return null
+// PNL badge
+function PnlBadge({ pnl, pnlPct }: { pnl: number | null; pnlPct?: number | null }) {
+  if (pnl === null || pnl === undefined) return null
+  const isPos = pnl >= 0
   return (
-    <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-violet-900/40 text-violet-300 border border-violet-700 font-medium">
-      {label ?? 'APY'} {fmtPct(apy)}
+    <div className={`flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${isPos ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+      {isPos ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
+      <span>{isPos ? '+' : ''}{fmtUSD(pnl)}</span>
+      {pnlPct !== null && pnlPct !== undefined && (
+        <span className="opacity-75">{fmtPct(pnlPct)}</span>
+      )}
+    </div>
+  )
+}
+
+// APY badge
+function ApyBadge({ apy, label = 'APY' }: { apy: number | null; label?: string }) {
+  const pct = fmtApy(apy)
+  if (!pct) return null
+  return (
+    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200">
+      {label} {pct}
     </span>
   )
 }
 
-function AprBadge({ apr }: { apr: number | null }) {
-  if (!apr || apr <= 0) return null
-  return (
-    <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-orange-900/40 text-orange-300 border border-orange-700 font-medium">
-      APR {fmtPct(apr)}
-    </span>
-  )
-}
-
-function RangeBadge({ inRange }: { inRange: boolean | null }) {
+// In-range badge for LP positions
+function RangeBadge({ inRange }: { inRange: boolean | null | undefined }) {
   if (inRange === null || inRange === undefined) return null
-  return inRange ? (
-    <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-900/40 text-emerald-300 border border-emerald-700 font-medium">
-      ✓ In Range
+  return inRange
+    ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">✓ In Range</span>
+    : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">✗ Out of Range</span>
+}
+
+// ─── Type badge ───────────────────────────────────────────────────────────────
+function TypeBadge({ type }: { type: string }) {
+  const cfg: Record<string, string> = {
+    lending:   'bg-blue-50 text-blue-600 border-blue-200',
+    vault:     'bg-violet-50 text-violet-700 border-violet-200',
+    liquidity: 'bg-cyan-50 text-cyan-700 border-cyan-200',
+  }
+  const labels: Record<string, string> = { lending: 'Lending', vault: 'Vault', liquidity: 'LP' }
+  return (
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${cfg[type] ?? 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+      {labels[type] ?? type}
     </span>
-  ) : (
-    <span className="px-2 py-0.5 text-xs rounded-full bg-red-900/40 text-red-300 border border-red-700 font-medium">
-      ✗ Out of Range
-    </span>
-  )
-}
-
-// ─── Card: Lending (supply + borrow) ─────────────────────────────────────────
-function LendingCard({ pos }: { pos: any }) {
-  const hasDebt = pos.totalDebtUSD > 0.01
-  const hasCollateral = pos.totalCollateralUSD > 0.01
-  const supplyItems = [...(pos.supply ?? []), ...(pos.collateral ?? [])]
-
-  return (
-    <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-2xl overflow-hidden shadow-xl">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-[#2a2a4a]">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{pos.logo}</span>
-          <div>
-            <div className="font-bold text-white text-base">{pos.protocol}</div>
-            {pos.label && <div className="text-slate-400 text-xs">{pos.label}</div>}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {pos.healthFactor !== null && pos.healthFactor !== undefined && (
-            <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${hfBg(pos.healthFactor)} ${hfColor(pos.healthFactor)}`}>
-              {hfLabel(pos.healthFactor)}
-            </span>
-          )}
-          <span className="px-2 py-0.5 text-xs rounded-full bg-blue-900/40 text-blue-300 border border-blue-700">
-            Lending
-          </span>
-        </div>
-      </div>
-
-      {/* Body */}
-      <div className="p-4 space-y-3">
-        {/* Supply / Collateral */}
-        {hasCollateral && (
-          <div className="rounded-xl bg-emerald-950/30 border border-emerald-800/50 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-emerald-400 font-semibold uppercase tracking-wide">Supplied / Collateral</span>
-              <span className="text-emerald-300 font-bold text-sm">{fmtUSD(pos.totalCollateralUSD)}</span>
-            </div>
-            {supplyItems.map((s: any, i: number) => (
-              <div key={i} className="flex items-center justify-between text-sm py-0.5">
-                <div className="flex items-center gap-1">
-                  <span className="text-emerald-200 font-medium">{s.symbol}</span>
-                  {s.apy > 0 && <ApyBadge apy={s.apy} />}
-                </div>
-                <span className="text-slate-300">
-                  {s.amountUSD ? fmtUSD(s.amountUSD) : s.amount ? s.amount.toFixed(4) : ''}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Borrow */}
-        {hasDebt && (
-          <div className="rounded-xl bg-red-950/30 border border-red-800/50 p-3">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-red-400 font-semibold uppercase tracking-wide">Borrowed</span>
-              <span className="text-red-300 font-bold text-sm">{fmtUSD(pos.totalDebtUSD)}</span>
-            </div>
-            {(pos.borrow ?? []).map((b: any, i: number) => (
-              <div key={i} className="flex items-center justify-between text-sm py-0.5">
-                <div className="flex items-center gap-1">
-                  <span className="text-red-200 font-medium">{b.symbol}</span>
-                  {b.apr > 0 && <AprBadge apr={b.apr} />}
-                </div>
-                <span className="text-slate-300">
-                  {b.amountUSD ? fmtUSD(b.amountUSD) : b.amount ? b.amount.toFixed(4) : ''}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Net */}
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-slate-400 text-sm">Net Value</span>
-          <span className={`font-bold text-base ${pos.netValueUSD >= 0 ? 'text-white' : 'text-red-400'}`}>
-            {fmtUSD(pos.netValueUSD)}
-          </span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Card: Vault ─────────────────────────────────────────────────────────────
-function VaultCard({ pos }: { pos: any }) {
-  return (
-    <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-2xl overflow-hidden shadow-xl">
-      <div className="flex items-center justify-between p-4 border-b border-[#2a2a4a]">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{pos.logo}</span>
-          <div>
-            <div className="font-bold text-white text-base">{pos.protocol}</div>
-            <div className="text-slate-400 text-xs">{pos.label}</div>
-          </div>
-        </div>
-        <span className="px-2 py-0.5 text-xs rounded-full bg-violet-900/40 text-violet-300 border border-violet-700">
-          Vault
-        </span>
-      </div>
-      <div className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-slate-400 text-xs mb-1">{pos.asset ?? ''}</div>
-            <div className="text-2xl font-bold text-white">{fmtUSD(pos.amountUSD ?? 0)}</div>
-          </div>
-          <ApyBadge apy={pos.apy} />
-        </div>
-        {pos.amount && (
-          <div className="mt-2 text-slate-400 text-sm">{pos.amount.toFixed(4)} {pos.asset}</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Card: Liquidity (LP) ─────────────────────────────────────────────────────
-function LiquidityCard({ pos }: { pos: any }) {
-  return (
-    <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-2xl overflow-hidden shadow-xl">
-      <div className="flex items-center justify-between p-4 border-b border-[#2a2a4a]">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{pos.logo}</span>
-          <div>
-            <div className="font-bold text-white text-base">{pos.protocol}</div>
-            <div className="text-slate-400 text-xs">{pos.label}</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <RangeBadge inRange={pos.inRange} />
-          <span className="px-2 py-0.5 text-xs rounded-full bg-cyan-900/40 text-cyan-300 border border-cyan-700">
-            Liquidity
-          </span>
-        </div>
-      </div>
-      <div className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-2xl font-bold text-white">
-              {pos.amountUSD > 0 ? fmtUSD(pos.amountUSD) : '—'}
-            </div>
-            {pos.tokens && pos.tokens.length > 0 && (
-              <div className="flex gap-1 mt-2">
-                {pos.tokens.map((t: string, i: number) => (
-                  <span key={i} className="px-2 py-0.5 text-xs rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-          <ApyBadge apy={pos.apy ?? pos.feeApr} label={pos.feeApr ? 'Fee APR' : 'APY'} />
-        </div>
-        {/* Range ticks for Uniswap V3 */}
-        {pos.tickLower !== undefined && pos.currentTick !== undefined && (
-          <div className="mt-3 text-xs text-slate-500 space-y-1">
-            <div className="flex justify-between">
-              <span>Tick Range</span>
-              <span>{pos.tickLower.toLocaleString()} → {pos.tickUpper.toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>Current Tick</span>
-              <span className={pos.inRange ? 'text-emerald-400' : 'text-red-400'}>{pos.currentTick.toLocaleString()}</span>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
   )
 }
 
 // ─── Skeleton ─────────────────────────────────────────────────────────────────
-function SkeletonCard() {
+function Skeleton({ className }: { className?: string }) {
+  return <div className={`skeleton rounded-xl ${className}`} />
+}
+function CardSkeleton() {
   return (
-    <div className="bg-[#1a1a2e] border border-[#2a2a4a] rounded-2xl p-4 animate-pulse">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-full bg-slate-700" />
-        <div className="space-y-2">
-          <div className="h-4 w-24 rounded bg-slate-700" />
-          <div className="h-3 w-16 rounded bg-slate-800" />
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <Skeleton className="w-10 h-10 rounded-full" />
+          <div className="space-y-2"><Skeleton className="w-24 h-4" /><Skeleton className="w-16 h-3" /></div>
+        </div>
+        <Skeleton className="w-16 h-6 rounded-full" />
+      </div>
+      <Skeleton className="w-full h-20 mb-3" />
+      <Skeleton className="w-full h-12" />
+    </div>
+  )
+}
+
+// ─── LENDING CARD ─────────────────────────────────────────────────────────────
+function LendingCard({ pos }: { pos: any }) {
+  const hf = hfConfig(pos.healthFactor)
+  const supplyItems = [...(pos.supply ?? []), ...(pos.collateral ?? [])]
+  const borrowItems = pos.borrow ?? []
+  const hasDebt = pos.totalDebtUSD > 0.01
+  const hasCollateral = pos.totalCollateralUSD > 0.01
+
+  return (
+    <div className="card p-5 hover:shadow-lg transition-all">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">
+            {pos.logo}
+          </div>
+          <div>
+            <div className="font-semibold text-gray-800 text-sm flex items-center gap-1.5">
+              {pos.protocol}
+              <ExternalLink size={11} className="text-gray-300" />
+            </div>
+            {pos.label && <div className="text-xs text-gray-400 mt-0.5">{pos.label}</div>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <TypeBadge type="lending" />
+          {hf && (
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${hf.bg} ${hf.color} ${hf.border}`}>
+              HF {hf.display}
+            </span>
+          )}
         </div>
       </div>
-      <div className="space-y-2">
-        <div className="h-20 rounded-xl bg-slate-800" />
-        <div className="h-12 rounded-xl bg-slate-800" />
+
+      {/* Supplied */}
+      {hasCollateral && (
+        <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 mb-2">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Supplied</span>
+            <span className="text-sm font-bold text-emerald-700">{fmtUSD(pos.totalCollateralUSD)}</span>
+          </div>
+          <div className="space-y-1">
+            {supplyItems.map((s: any, i: number) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-gray-700">{s.symbol}</span>
+                  {s.apy > 0 && <ApyBadge apy={s.apy} />}
+                </div>
+                <span className="text-gray-500">
+                  {s.amountUSD ? fmtUSD(s.amountUSD) : s.amount ? s.amount.toFixed(4) : '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Borrowed */}
+      {hasDebt && (
+        <div className="rounded-xl bg-red-50 border border-red-100 p-3 mb-2">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-red-600 uppercase tracking-wide">Borrowed</span>
+            <span className="text-sm font-bold text-red-600">{fmtUSD(pos.totalDebtUSD)}</span>
+          </div>
+          <div className="space-y-1">
+            {borrowItems.map((b: any, i: number) => (
+              <div key={i} className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-gray-700">{b.symbol}</span>
+                  {b.apr > 0 && <ApyBadge apy={b.apr} label="APR" />}
+                </div>
+                <span className="text-gray-500">
+                  {b.amountUSD ? fmtUSD(b.amountUSD) : b.amount ? b.amount.toFixed(4) : '—'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Net + PNL */}
+      <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Net Value</span>
+          <PnlBadge pnl={pos.pnl ?? null} pnlPct={pos.pnlPct ?? null} />
+        </div>
+        <span className={`font-bold text-sm ${pos.netValueUSD >= 0 ? 'text-gray-800' : 'text-red-600'}`}>
+          {fmtUSD(pos.netValueUSD)}
+        </span>
       </div>
     </div>
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── VAULT CARD ───────────────────────────────────────────────────────────────
+function VaultCard({ pos }: { pos: any }) {
+  return (
+    <div className="card p-5 hover:shadow-lg transition-all">
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">
+            {pos.logo}
+          </div>
+          <div>
+            <div className="font-semibold text-gray-800 text-sm flex items-center gap-1.5">
+              {pos.protocol}
+              <ExternalLink size={11} className="text-gray-300" />
+            </div>
+            {pos.label && <div className="text-xs text-gray-400 mt-0.5">{pos.label}</div>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <TypeBadge type="vault" />
+          {pos.apy > 0 && <ApyBadge apy={pos.apy} />}
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-violet-50 border border-violet-100 p-3">
+        <div className="text-xs text-violet-600 font-medium mb-1">{pos.asset ?? 'Deposited'}</div>
+        <div className="text-2xl font-bold text-gray-800">{fmtUSD(pos.amountUSD)}</div>
+        {pos.amount && (
+          <div className="text-xs text-gray-400 mt-1">{pos.amount.toFixed(4)} {pos.asset}</div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between pt-3 border-t border-gray-50 mt-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Value</span>
+          <PnlBadge pnl={pos.pnl ?? null} pnlPct={pos.pnlPct ?? null} />
+        </div>
+        <span className="font-bold text-sm text-gray-800">{fmtUSD(pos.netValueUSD)}</span>
+      </div>
+    </div>
+  )
+}
+
+// ─── LIQUIDITY CARD ───────────────────────────────────────────────────────────
+function LiquidityCard({ pos }: { pos: any }) {
+  return (
+    <div className="card p-5 hover:shadow-lg transition-all">
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">
+            {pos.logo}
+          </div>
+          <div>
+            <div className="font-semibold text-gray-800 text-sm flex items-center gap-1.5">
+              {pos.protocol}
+              <ExternalLink size={11} className="text-gray-300" />
+            </div>
+            {pos.label && <div className="text-xs text-gray-400 mt-0.5">{pos.label}</div>}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          <TypeBadge type="liquidity" />
+          <RangeBadge inRange={pos.inRange} />
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-cyan-50 border border-cyan-100 p-3 mb-2">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex gap-1">
+            {(pos.tokens ?? []).map((t: string, i: number) => (
+              <span key={i} className="text-xs font-medium px-2 py-0.5 rounded-full bg-white border border-cyan-200 text-cyan-700">
+                {t}
+              </span>
+            ))}
+          </div>
+          {pos.apy > 0 && <ApyBadge apy={pos.apy} />}
+        </div>
+        <div className="text-2xl font-bold text-gray-800">
+          {pos.amountUSD > 0 ? fmtUSD(pos.amountUSD) : <span className="text-gray-400 text-base font-medium">No USD data</span>}
+        </div>
+
+        {/* Tick range for V3 */}
+        {pos.tickLower !== undefined && pos.currentTick !== undefined && (
+          <div className="mt-2 pt-2 border-t border-cyan-100">
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>Range: {pos.tickLower.toLocaleString()} → {pos.tickUpper.toLocaleString()}</span>
+              <span className={pos.inRange ? 'text-emerald-600 font-medium' : 'text-red-500 font-medium'}>
+                Tick: {pos.currentTick.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between pt-2 border-t border-gray-50">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-400">Liquidity</span>
+          <PnlBadge pnl={pos.pnl ?? null} pnlPct={pos.pnlPct ?? null} />
+        </div>
+        <span className="font-bold text-sm text-gray-800">
+          {pos.amountUSD > 0 ? fmtUSD(pos.netValueUSD) : '—'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ─── SUMMARY BANNER ───────────────────────────────────────────────────────────
+function SummaryBanner({ summary, loading }: { summary: any; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="card p-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[1,2,3,4].map(i => <Skeleton key={i} className="h-16" />)}
+        </div>
+      </div>
+    )
+  }
+  const items = [
+    { label: 'Total Supplied',  value: fmtUSD(summary.totalSupplyUSD ?? 0),   color: 'text-emerald-600' },
+    { label: 'Total Borrowed',  value: fmtUSD(summary.totalDebtUSD ?? 0),     color: 'text-red-500' },
+    { label: 'Net DeFi Value',  value: fmtUSD(summary.netValueUSD ?? 0),      color: 'text-violet-700 font-bold text-xl' },
+    { label: 'Active Protocols',value: String(summary.activeProtocols?.length ?? 0), color: 'text-gray-800' },
+  ]
+  return (
+    <div className="card overflow-hidden">
+      {/* Purple gradient header */}
+      <div className="px-6 pt-5 pb-4" style={{ background: 'linear-gradient(135deg, #836EF9 0%, #6d28d9 100%)' }}>
+        <p className="text-violet-200 text-xs font-medium uppercase tracking-wide mb-1">Total DeFi Value</p>
+        <div className="flex items-end gap-3">
+          <p className="font-display text-4xl font-bold text-white" style={{ fontFamily: 'Sora, sans-serif' }}>
+            {fmtUSD(summary.netValueUSD ?? 0)}
+          </p>
+          {summary.totalDebtUSD > 0 && (
+            <p className="text-violet-300 text-sm pb-1">after {fmtUSD(summary.totalDebtUSD)} debt</p>
+          )}
+        </div>
+        {summary.activeProtocols?.length > 0 && (
+          <p className="text-violet-300 text-xs mt-1">
+            {summary.activeProtocols.join(' · ')}
+          </p>
+        )}
+      </div>
+      {/* Stats row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-gray-100">
+        {items.map((item, i) => (
+          <div key={i} className="px-5 py-4">
+            <p className="text-xs text-gray-400 mb-1">{item.label}</p>
+            <p className={`font-bold text-base ${item.color}`}>{item.value}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ─── PROTOCOLS FOOTER ────────────────────────────────────────────────────────
+const PROTOCOLS = [
+  { name: 'Neverland',      url: 'https://app.neverland.money',      logo: '🌙' },
+  { name: 'Morpho',         url: 'https://app.morpho.org',           logo: '🦋' },
+  { name: 'Uniswap V3',     url: 'https://app.uniswap.org',          logo: '🦄' },
+  { name: 'PancakeSwap V3', url: 'https://pancakeswap.finance',      logo: '🥞' },
+  { name: 'Curve',          url: 'https://curve.fi/#/monad',         logo: '🌊' },
+  { name: 'Gearbox',        url: 'https://app.gearbox.fi',           logo: '⚙️' },
+  { name: 'Upshift',        url: 'https://app.upshift.finance',      logo: '🔺' },
+  { name: 'Kintsu',         url: 'https://kintsu.xyz',               logo: '🔵' },
+  { name: 'Magma',          url: 'https://magmastaking.xyz',         logo: '🐲' },
+  { name: 'shMonad',        url: 'https://shmonad.xyz',              logo: '⚡' },
+  { name: 'Lagoon',         url: 'https://app.lagoon.finance',       logo: '🏝️' },
+  { name: 'Renzo',          url: 'https://app.renzoprotocol.com',    logo: '🔴' },
+  { name: 'Kuru',           url: 'https://app.kuru.io',              logo: '🌀' },
+]
+
+// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function DefiPage() {
   const { address, isConnected } = useAccount()
-  const [data, setData]   = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError]  = useState<string | null>(null)
+  const [data, setData]         = useState<any>(null)
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
@@ -273,227 +381,178 @@ export default function DefiPage() {
     setLoading(true); setError(null)
     try {
       const res = await fetch(`/api/defi?address=${address}`)
-      if (!res.ok) throw new Error('API error')
+      if (!res.ok) throw new Error('Erro ao carregar posições')
       const json = await res.json()
       setData(json)
       setUpdatedAt(new Date())
     } catch (e: any) {
-      setError(e.message ?? 'Failed to load')
-    } finally {
-      setLoading(false)
-    }
+      setError(e.message ?? 'Erro desconhecido')
+    } finally { setLoading(false) }
   }, [address])
 
   useEffect(() => { if (isConnected && address) load() }, [isConnected, address, load])
 
-  const positions: any[] = data?.positions ?? []
-  const summary: any = data?.summary ?? {}
+  const positions  = data?.positions ?? []
+  const summary    = data?.summary   ?? {}
+  const lending    = positions.filter((p: any) => p.type === 'lending')
+  const vaults     = positions.filter((p: any) => p.type === 'vault')
+  const liquidity  = positions.filter((p: any) => p.type === 'liquidity')
 
-  const lendingPos   = positions.filter(p => p.type === 'lending')
-  const vaultPos     = positions.filter(p => p.type === 'vault')
-  const liquidityPos = positions.filter(p => p.type === 'liquidity')
-
-  const protocols = [
-    { name: 'Neverland',   url: 'https://app.neverland.money',    logo: '🌙' },
-    { name: 'Morpho',      url: 'https://app.morpho.org',         logo: '🦋' },
-    { name: 'Uniswap V3',  url: 'https://app.uniswap.org',        logo: '🦄' },
-    { name: 'Curve',       url: 'https://curve.fi/#/monad',       logo: '🌊' },
-    { name: 'Gearbox',     url: 'https://app.gearbox.fi',         logo: '⚙️' },
-    { name: 'Upshift',     url: 'https://app.upshift.finance',    logo: '🔺' },
-    { name: 'shMonad',     url: 'https://shmonad.xyz',            logo: '⚡' },
-    { name: 'Curvance',    url: 'https://monad.curvance.com',     logo: '💎' },
-    { name: 'Euler',       url: 'https://app.euler.finance',      logo: '📐' },
-    { name: 'Midas',       url: 'https://midas.app',              logo: '🏛️' },
-  ]
+  // ── Not connected ──
+  if (!isConnected) {
+    return (
+      <div className="page-content max-w-4xl mx-auto px-4 py-8">
+        <div className="card p-12 text-center">
+          <div className="w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center mx-auto mb-4">
+            <Zap className="text-violet-500" size={28} />
+          </div>
+          <h2 className="text-lg font-bold text-gray-800 mb-2">Conecte sua carteira</h2>
+          <p className="text-gray-400 text-sm">Conecte para visualizar suas posições DeFi nos protocolos Monad.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-[#0d0d1a] text-white p-4 md:p-6">
-      <div className="max-w-6xl mx-auto space-y-6">
+    <div className="page-content max-w-6xl mx-auto px-4 py-6">
+      {/* ── Page Header ── */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-xl font-bold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+            DeFi Positions
+          </h1>
+          <p className="text-gray-400 text-sm mt-0.5">
+            {PROTOCOLS.length} protocolos monitorados na Monad
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {updatedAt && !loading && (
+            <span className="text-xs text-gray-400">
+              {updatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <button
+            onClick={load}
+            disabled={loading}
+            className="btn-primary flex items-center gap-2 text-sm py-2 px-4 disabled:opacity-60"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            {loading ? 'Carregando...' : 'Atualizar'}
+          </button>
+        </div>
+      </div>
 
-        {/* ── Header ──────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-white">DeFi Positions</h1>
-            <p className="text-slate-400 text-sm mt-1">
-              All your positions across 10 Monad protocols
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            {updatedAt && !loading && (
-              <span className="text-slate-500 text-xs">
-                Updated {updatedAt.toLocaleTimeString()}
-              </span>
-            )}
-            {isConnected && (
-              <button
-                onClick={load} disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 rounded-lg text-sm font-medium transition-colors"
-              >
-                {loading ? (
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                  </svg>
-                )}
-                {loading ? 'Loading...' : 'Refresh'}
-              </button>
-            )}
+      {/* ── Error ── */}
+      {error && (
+        <div className="mb-4 flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm">
+          <AlertCircle size={15} />
+          {error}
+        </div>
+      )}
+
+      {/* ── Summary banner ── */}
+      {(data || loading) && (
+        <div className="mb-6">
+          <SummaryBanner summary={summary} loading={loading && !data} />
+        </div>
+      )}
+
+      {/* ── Loading skeletons ── */}
+      {loading && !data && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {[1,2,3,4].map(i => <CardSkeleton key={i} />)}
+        </div>
+      )}
+
+      {/* ── Empty state ── */}
+      {!loading && data && positions.length === 0 && (
+        <div className="card p-10 text-center">
+          <div className="text-4xl mb-3">🌐</div>
+          <h2 className="text-base font-bold text-gray-800 mb-1">Nenhuma posição encontrada</h2>
+          <p className="text-gray-400 text-sm mb-6">
+            Comece a usar os protocolos abaixo para ver suas posições aqui.
+          </p>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {PROTOCOLS.map(p => (
+              <a key={p.name} href={p.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-100 bg-white hover:border-violet-300 hover:bg-violet-50 text-xs text-gray-600 hover:text-violet-700 transition-colors">
+                {p.logo} {p.name}
+              </a>
+            ))}
           </div>
         </div>
+      )}
 
-        {/* ── Not Connected ─────────────────────────────────────────────── */}
-        {!isConnected && (
-          <div className="rounded-2xl bg-[#1a1a2e] border border-[#2a2a4a] p-12 text-center">
-            <div className="text-5xl mb-4">🔗</div>
-            <h2 className="text-xl font-bold text-white mb-2">Connect your wallet</h2>
-            <p className="text-slate-400">Connect to see your DeFi positions across Monad protocols.</p>
+      {/* ══ LENDING POSITIONS ══ */}
+      {lending.length > 0 && (
+        <section className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-base">🏦</span>
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+              Lending
+            </h2>
+            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">
+              {lending.length}
+            </span>
           </div>
-        )}
-
-        {/* ── Error ───────────────────────────────────────────────────── */}
-        {error && (
-          <div className="rounded-xl bg-red-900/20 border border-red-700 p-4 text-red-300 text-sm">
-            ⚠️ {error}
-          </div>
-        )}
-
-        {/* ══ TOTAL VALUE BANNER ══════════════════════════════════════════ */}
-        {isConnected && (data || loading) && (
-          <div className="rounded-2xl bg-gradient-to-br from-[#1a1a3e] to-[#0d0d2e] border border-violet-800/50 p-6 shadow-2xl">
-            {loading && !data ? (
-              <div className="animate-pulse space-y-3">
-                <div className="h-6 w-32 bg-slate-700 rounded" />
-                <div className="h-12 w-48 bg-slate-700 rounded" />
-                <div className="grid grid-cols-3 gap-4 mt-4">
-                  {[1,2,3].map(i => <div key={i} className="h-16 bg-slate-800 rounded-xl" />)}
-                </div>
-              </div>
-            ) : data && (
-              <>
-                <div className="text-slate-400 text-sm font-medium mb-1 uppercase tracking-wide">Total DeFi Value</div>
-                <div className="flex items-end gap-4 mb-6">
-                  <div className={`text-5xl font-bold ${summary.netValueUSD >= 0 ? 'text-white' : 'text-red-400'}`}>
-                    {fmtUSD(summary.netValueUSD ?? 0)}
-                  </div>
-                  {summary.totalDebtUSD > 0 && (
-                    <div className="text-slate-500 text-sm pb-2">
-                      after {fmtUSD(summary.totalDebtUSD)} debt
-                    </div>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="rounded-xl bg-[#1a1a2e]/80 border border-[#2a2a4a] p-4">
-                    <div className="text-slate-400 text-xs mb-1">Total Supplied</div>
-                    <div className="text-emerald-300 font-bold text-lg">{fmtUSD(summary.totalSupplyUSD ?? 0)}</div>
-                  </div>
-                  <div className="rounded-xl bg-[#1a1a2e]/80 border border-[#2a2a4a] p-4">
-                    <div className="text-slate-400 text-xs mb-1">Total Borrowed</div>
-                    <div className={`font-bold text-lg ${summary.totalDebtUSD > 0 ? 'text-red-400' : 'text-slate-500'}`}>
-                      {fmtUSD(summary.totalDebtUSD ?? 0)}
-                    </div>
-                  </div>
-                  <div className="rounded-xl bg-[#1a1a2e]/80 border border-[#2a2a4a] p-4">
-                    <div className="text-slate-400 text-xs mb-1">Net Value</div>
-                    <div className="text-white font-bold text-lg">{fmtUSD(summary.netValueUSD ?? 0)}</div>
-                  </div>
-                  <div className="rounded-xl bg-[#1a1a2e]/80 border border-[#2a2a4a] p-4">
-                    <div className="text-slate-400 text-xs mb-1">Active Protocols</div>
-                    <div className="text-violet-300 font-bold text-lg">{summary.activeProtocols?.length ?? 0}</div>
-                    {summary.activeProtocols?.length > 0 && (
-                      <div className="text-slate-500 text-xs mt-1 truncate">
-                        {summary.activeProtocols.join(', ')}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ── Loading skeletons ─────────────────────────────────────────── */}
-        {loading && !data && isConnected && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[1,2,3].map(i => <SkeletonCard key={i} />)}
+            {lending.map((pos: any, i: number) => <LendingCard key={i} pos={pos} />)}
           </div>
-        )}
+        </section>
+      )}
 
-        {/* ── Empty state ───────────────────────────────────────────────── */}
-        {isConnected && !loading && data && positions.length === 0 && (
-          <div className="rounded-2xl bg-[#1a1a2e] border border-[#2a2a4a] p-10 text-center">
-            <div className="text-4xl mb-4">🌐</div>
-            <h2 className="text-lg font-bold text-white mb-2">No DeFi positions found</h2>
-            <p className="text-slate-400 text-sm mb-6">Start using these protocols to see your positions here.</p>
-            <div className="flex flex-wrap gap-3 justify-center">
-              {protocols.map(p => (
-                <a key={p.name} href={p.url} target="_blank" rel="noopener noreferrer"
-                   className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0d0d1a] border border-[#2a2a4a] hover:border-violet-600 text-sm text-slate-300 hover:text-white transition-colors">
-                  {p.logo} {p.name}
-                </a>
-              ))}
-            </div>
+      {/* ══ VAULT POSITIONS ══ */}
+      {vaults.length > 0 && (
+        <section className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-base">🏺</span>
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+              Vaults & Staking
+            </h2>
+            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">
+              {vaults.length}
+            </span>
           </div>
-        )}
-
-        {/* ══ LENDING POSITIONS ══════════════════════════════════════════ */}
-        {lendingPos.length > 0 && (
-          <section>
-            <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span>🏦</span> Lending Positions
-              <span className="text-slate-500 font-normal text-sm">({lendingPos.length})</span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {lendingPos.map((pos, i) => <LendingCard key={i} pos={pos} />)}
-            </div>
-          </section>
-        )}
-
-        {/* ══ VAULT POSITIONS ════════════════════════════════════════════ */}
-        {vaultPos.length > 0 && (
-          <section>
-            <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span>🏺</span> Vault Positions
-              <span className="text-slate-500 font-normal text-sm">({vaultPos.length})</span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {vaultPos.map((pos, i) => <VaultCard key={i} pos={pos} />)}
-            </div>
-          </section>
-        )}
-
-        {/* ══ LIQUIDITY POSITIONS ════════════════════════════════════════ */}
-        {liquidityPos.length > 0 && (
-          <section>
-            <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span>💧</span> Liquidity Positions
-              <span className="text-slate-500 font-normal text-sm">({liquidityPos.length})</span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {liquidityPos.map((pos, i) => <LiquidityCard key={i} pos={pos} />)}
-            </div>
-          </section>
-        )}
-
-        {/* ── Supported Protocols footer ────────────────────────────────── */}
-        {isConnected && (
-          <div className="rounded-2xl bg-[#1a1a2e]/50 border border-[#2a2a4a]/50 p-4">
-            <div className="text-slate-500 text-xs mb-3 font-medium uppercase tracking-wide">Supported Protocols on Monad</div>
-            <div className="flex flex-wrap gap-2">
-              {protocols.map(p => (
-                <a key={p.name} href={p.url} target="_blank" rel="noopener noreferrer"
-                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0d0d1a] border border-[#2a2a4a] hover:border-violet-600 text-xs text-slate-400 hover:text-white transition-colors">
-                  {p.logo} {p.name}
-                </a>
-              ))}
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {vaults.map((pos: any, i: number) => <VaultCard key={i} pos={pos} />)}
           </div>
-        )}
-      </div>
+        </section>
+      )}
+
+      {/* ══ LIQUIDITY POSITIONS ══ */}
+      {liquidity.length > 0 && (
+        <section className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-base">💧</span>
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
+              Liquidity Pools
+            </h2>
+            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">
+              {liquidity.length}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {liquidity.map((pos: any, i: number) => <LiquidityCard key={i} pos={pos} />)}
+          </div>
+        </section>
+      )}
+
+      {/* ── Protocols footer ── */}
+      {positions.length > 0 && (
+        <div className="card p-4 mt-2">
+          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-3">
+            Protocolos Monitorados
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {PROTOCOLS.map(p => (
+              <a key={p.name} href={p.url} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-100 bg-white hover:border-violet-300 hover:bg-violet-50 text-xs text-gray-500 hover:text-violet-700 transition-colors">
+                {p.logo} {p.name}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
