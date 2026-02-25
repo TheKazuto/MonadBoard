@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 export const revalidate = 0
 
 const RPC = 'https://rpc.monad.xyz'
+const MONAD_CHAIN_ID = 143
 
 // ─── RPC helpers ──────────────────────────────────────────────────────────────
 async function rpcBatch(calls: object[]): Promise<any[]> {
@@ -33,32 +34,32 @@ function resolveURI(uri: string): string {
   return uri.startsWith('ipfs://') ? uri.replace('ipfs://', 'https://ipfs.io/ipfs/') : uri
 }
 
-// ─── Step 1: Etherscan tokennfttx chainid=143 ────────────────────────────────
+// ─── Step 1: Etherscan tokennfttx chainid=143 (Monad mainnet) ─────────────────
 async function discoverNFTs(address: string, apiKey: string) {
-  const url  = `https://api.etherscan.io/v2/api?chainid=143&module=account&action=tokennfttx&address=${address}&page=1&offset=100&sort=desc&apikey=${apiKey}`
+  const url = `https://api.etherscan.io/v2/api?chainid=143&module=account&action=tokennfttx&address=${address}&page=1&offset=100&sort=desc&apikey=${apiKey}`
   const res  = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(12_000) })
   const data = await res.json()
-
   if (data.status !== '1') {
     if (data.message?.includes('No transactions')) return []
     throw new Error(`Etherscan: ${data.message}`)
   }
-
   const addrLower = address.toLowerCase()
   const lastTx    = new Map<string, any>()
-  for (const tx of data.result as any[])
-    lastTx.set(`${tx.contractAddress.toLowerCase()}_${BigInt(tx.tokenID)}`, lastTx.has(`${tx.contractAddress.toLowerCase()}_${BigInt(tx.tokenID)}`) ? lastTx.get(`${tx.contractAddress.toLowerCase()}_${BigInt(tx.tokenID)}`) : tx)
-
+  for (const tx of data.result as any[]) {
+    const key = `${tx.contractAddress.toLowerCase()}_${BigInt(tx.tokenID)}`
+    if (!lastTx.has(key)) lastTx.set(key, tx)
+  }
   return [...lastTx.values()]
     .filter(tx => tx.to?.toLowerCase() === addrLower)
     .map(tx => ({ contract: tx.contractAddress.toLowerCase(), tokenId: BigInt(tx.tokenID) }))
 }
 
-// ─── Step 2: ownerOf verification ────────────────────────────────────────────
+// ─── Step 2: verify ownerOf ───────────────────────────────────────────────────
 async function verifyOwnership(candidates: { contract: string; tokenId: bigint }[], address: string) {
   const calls = candidates.map((c, i) => ({
     jsonrpc: '2.0', method: 'eth_call',
-    params: [{ to: c.contract, data: '0x6352211e' + padUint256(c.tokenId) }, 'latest'], id: i,
+    params: [{ to: c.contract, data: '0x6352211e' + padUint256(c.tokenId) }, 'latest'],
+    id: i,
   }))
   const results: any[] = []
   for (let i = 0; i < calls.length; i += 20)
@@ -70,7 +71,7 @@ async function verifyOwnership(candidates: { contract: string; tokenId: bigint }
   })
 }
 
-// ─── Step 3: name/symbol/tokenURI ─────────────────────────────────────────────
+// ─── Step 3: on-chain name/symbol/tokenURI ────────────────────────────────────
 async function fetchOnChainMeta(owned: { contract: string; tokenId: bigint }[]) {
   const contracts = [...new Set(owned.map(t => t.contract))]
   const [nameRes, symRes, uriRes] = await Promise.all([
@@ -94,104 +95,99 @@ async function fetchTokenMeta(uri: string) {
   } catch { return null }
 }
 
-// ─── Step 4: floor price — ME API + page scraping ────────────────────────────
-const ME_BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Cache-Control': 'no-cache',
-}
+// ─── Step 4: Floor price via ME v4 evm-public API (no key needed) ─────────────
+// Strategy A: user-assets — returns NFTs with floor price info (best for wallets)
+// Strategy B: collections search by contract address
+// Strategy C: v3/rtp/monad collections endpoint (legacy)
 
-async function fetchFloorFromMEApi(contract: string): Promise<number> {
-  const meKey = process.env.MAGIC_EDEN_API_KEY
-  const headers: Record<string,string> = { accept: 'application/json' }
-  if (meKey) headers['Authorization'] = `Bearer ${meKey}`
+async function fetchFloorPricesForWallet(
+  address: string,
+  contracts: string[]
+): Promise<Record<string, number>> {
+  const result: Record<string, number> = {}
+  contracts.forEach(c => { result[c] = 0 })
 
-  for (const slug of ['monad', 'monad-mainnet']) {
-    try {
-      const r = await fetch(
-        `https://api-mainnet.magiceden.dev/v3/rtp/${slug}/collections/v7?id=${contract}&limit=1`,
-        { headers, signal: AbortSignal.timeout(5_000), cache: 'no-store' }
-      )
-      if (!r.ok) continue
-      const floor = (await r.json())?.collections?.[0]?.floorAsk?.price?.amount?.native ?? 0
-      if (floor > 0) return floor
-    } catch { /* next slug */ }
-  }
-  return 0
-}
-
-async function fetchFloorFromMEPage(contract: string): Promise<number> {
+  // ── Strategy A: ME v4 user-assets (returns all NFTs with floor prices) ──
   try {
-    const r = await fetch(`https://magiceden.io/collections/monad/${contract}`, {
-      headers: ME_BROWSER_HEADERS,
-      signal: AbortSignal.timeout(10_000),
+    const url = `https://api-mainnet.magiceden.dev/v4/evm-public/assets/user-assets?` +
+      `chain_id=${MONAD_CHAIN_ID}&wallet_address=${address}&limit=100`
+    const r = await fetch(url, {
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(8_000),
       cache: 'no-store',
     })
-    if (!r.ok) return 0
-    const html = await r.text()
+    if (r.ok) {
+      const data = await r.json()
+      // Response structure: { assets: [{ contract_address, floor_price, ... }] }
+      const assets: any[] = data?.assets ?? data?.data ?? data?.results ?? []
+      for (const asset of assets) {
+        const c = (asset?.contract_address ?? asset?.contractAddress ?? '').toLowerCase()
+        if (!c || !result.hasOwnProperty(c)) continue
+        const floor =
+          asset?.floor_price ??
+          asset?.floorPrice ??
+          asset?.collection?.floor_price ??
+          asset?.collection?.floorPrice ??
+          0
+        if (floor > 0 && result[c] === 0) result[c] = Number(floor)
+      }
+      // If we got data, check if any contracts are still missing
+      const missing = contracts.filter(c => result[c] === 0)
+      if (missing.length === 0) return result
+      console.log('[nfts] v4 user-assets: missing floor for', missing)
+    } else {
+      console.log('[nfts] v4 user-assets HTTP', r.status)
+    }
+  } catch (e: any) {
+    console.log('[nfts] v4 user-assets error:', e.message)
+  }
 
-    // ── A: Parse __NEXT_DATA__ (SSR JSON blob) ──
-    const ndMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/)
-    if (ndMatch) {
+  // ── Strategy B: ME v4 collections/search per contract ──
+  const stillMissing = contracts.filter(c => result[c] === 0)
+  await Promise.all(stillMissing.map(async (contract) => {
+    try {
+      const url = `https://api-mainnet.magiceden.dev/v4/evm-public/collections/search?` +
+        `chain_id=${MONAD_CHAIN_ID}&contract_address=${contract}&limit=1`
+      const r = await fetch(url, {
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(6_000),
+        cache: 'no-store',
+      })
+      if (r.ok) {
+        const data = await r.json()
+        const col  = (data?.collections ?? data?.data ?? [])[0]
+        const floor = col?.floor_price ?? col?.floorPrice ?? col?.stats?.floor_price ?? 0
+        if (floor > 0) result[contract] = Number(floor)
+        console.log('[nfts] v4 search', contract, '→', floor)
+      } else {
+        console.log('[nfts] v4 search HTTP', r.status, 'for', contract)
+      }
+    } catch (e: any) {
+      console.log('[nfts] v4 search error', contract, e.message)
+    }
+  }))
+
+  // ── Strategy C: v3/rtp/monad (legacy, may work with API key) ──
+  const stillMissing2 = contracts.filter(c => result[c] === 0)
+  const meKey = process.env.MAGIC_EDEN_API_KEY
+  if (stillMissing2.length && meKey) {
+    await Promise.all(stillMissing2.map(async (contract) => {
       try {
-        const str = ndMatch[1]
-        // Search for any floor price key in the entire JSON string
-        for (const pat of [
-          /"floorPrice"\s*:\s*([\d.]+)/,
-          /"floor_price"\s*:\s*([\d.]+)/,
-          /"floorAsk"\s*:\s*\{[^}]*"native"\s*:\s*([\d.]+)/,
-          /"native"\s*:\s*([\d.]+)[^}]*"usd"/,
-        ]) {
-          const m = str.match(pat)
-          if (m) {
-            const v = parseFloat(m[1])
-            if (v > 0 && v < 10_000_000) return v
-          }
+        const url = `https://api-mainnet.magiceden.dev/v3/rtp/monad/collections/v7?id=${contract}&limit=1`
+        const r   = await fetch(url, {
+          headers: { accept: 'application/json', 'Authorization': `Bearer ${meKey}` },
+          signal: AbortSignal.timeout(5_000),
+          cache: 'no-store',
+        })
+        if (r.ok) {
+          const floor = (await r.json())?.collections?.[0]?.floorAsk?.price?.amount?.native ?? 0
+          if (floor > 0) result[contract] = Number(floor)
         }
-      } catch { /* fall through */ }
-    }
+      } catch { /* ignore */ }
+    }))
+  }
 
-    // ── B: Scan all JSON-like blobs in script tags ──
-    const scriptBlobs = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)]
-    for (const [, blob] of scriptBlobs) {
-      for (const pat of [/"floorPrice"\s*:\s*([\d.]+)/, /"floor_price"\s*:\s*([\d.]+)/]) {
-        const m = blob.match(pat)
-        if (m) {
-          const v = parseFloat(m[1])
-          if (v > 0 && v < 10_000_000) return v
-        }
-      }
-    }
-
-    // ── C: Visible text — "Floor\n88.00\nMON" or "88.00 MON" near "floor" ──
-    // Strip tags first for cleaner matching
-    const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
-    const textPatterns = [
-      /floor\s+(?:price\s+)?(\d[\d,]*\.?\d*)\s*(?:K\s+)?mon/i,
-      /(\d[\d,]*\.?\d*)\s*(?:K\s+)?mon\s+floor/i,
-      /floor\s*:\s*(\d[\d,]*\.?\d*)/i,
-    ]
-    for (const pat of textPatterns) {
-      const m = text.match(pat)
-      if (m) {
-        let val = m[1].replace(',', '')
-        const v = parseFloat(val)
-        if (v > 0 && v < 10_000_000) return v
-      }
-    }
-
-    return 0
-  } catch { return 0 }
-}
-
-async function fetchFloorMON(contract: string): Promise<number> {
-  // Run API and page scrape in parallel — first non-zero wins
-  const [apiFloor, pageFloor] = await Promise.all([
-    fetchFloorFromMEApi(contract),
-    fetchFloorFromMEPage(contract),
-  ])
-  return apiFloor || pageFloor || 0
+  return result
 }
 
 // ─── Main route ───────────────────────────────────────────────────────────────
@@ -207,7 +203,7 @@ export async function GET(req: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: 'no_api_key', nfts: [], nftValue: 0, total: 0 })
 
   try {
-    // 1. Discover NFTs
+    // 1. Discover via Etherscan
     const candidates = await discoverNFTs(address, apiKey)
     if (!candidates.length) return NextResponse.json({ nfts: [], nftValue: 0, total: 0 })
 
@@ -220,19 +216,15 @@ export async function GET(req: NextRequest) {
 
     // 3. On-chain metadata
     const { cMeta, uriRes } = await fetchOnChainMeta(cap)
-
-    // 4. Token JSON metadata + floor prices + MON price — all parallel
     const contracts = [...new Set(cap.map(t => t.contract))]
 
-    const [metaResults, floorResults, monPrice] = await Promise.all([
+    // 4. All parallel: token JSON metadata + floor prices (via ME v4) + MON price
+    const [metaResults, floorMap, monPrice] = await Promise.all([
       Promise.all(cap.map((_, i) => fetchTokenMeta(decodeString(uriRes[i]?.result ?? '')))),
-      Promise.all(contracts.map(c => fetchFloorMON(c))),
+      fetchFloorPricesForWallet(address, contracts),
       fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd', { next: { revalidate: 60 } })
         .then(r => r.json()).then(d => (d?.monad?.usd ?? 0) as number).catch(() => 0),
     ])
-
-    const floorMap: Record<string, number> = {}
-    contracts.forEach((c, i) => { floorMap[c] = floorResults[i] })
 
     // 5. Build response
     const nfts = cap.map(({ contract, tokenId }, i) => {
@@ -241,7 +233,6 @@ export async function GET(req: NextRequest) {
       const floorMON   = floorMap[contract] ?? 0
       const floorUSD   = floorMON * monPrice
       const collection = cm.name || cm.symbol || `${contract.slice(0, 6)}...${contract.slice(-4)}`
-
       return {
         id:           `${contract}_${tokenId}`,
         contract,
@@ -257,15 +248,11 @@ export async function GET(req: NextRequest) {
     })
 
     const nftValue = nfts.reduce((s, n) => s + n.floorUSD, 0)
-
     const debugInfo = isDebug ? {
       monPrice,
       meApiKey: !!process.env.MAGIC_EDEN_API_KEY,
-      contracts: contracts.map((c, i) => ({
-        contract: c,
-        floorMON: floorResults[i],
-        mePageUrl: `https://magiceden.io/collections/monad/${c}`,
-      })),
+      floorMap,
+      contracts,
     } : undefined
 
     return NextResponse.json({ nfts, nftValue, total, ...(debugInfo ? { debug: debugInfo } : {}) })
