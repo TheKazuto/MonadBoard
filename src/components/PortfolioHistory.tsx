@@ -1,5 +1,5 @@
-import { cachedFetch, getCached } from '@/lib/dataCache'
 'use client'
+import { cachedFetch, getCached } from '@/lib/dataCache'
 
 import { useEffect, useState, useCallback } from 'react'
 import { useWallet }      from '@/contexts/WalletContext'
@@ -92,7 +92,7 @@ export default function PortfolioHistory() {
   })
   const [error, setError] = useState(false)
 
-  async function fetchRange(r: Range) {
+  async function fetchRange(r: Range, force = false) {
     if (!stableAddress) return
     const days = RANGES.find(x => x.key === r)!.days
     setLoading(prev => ({ ...prev, [r]: true }))
@@ -206,9 +206,14 @@ export default function PortfolioHistory() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {isLoading && (
-            <RefreshCw size={12} className="text-violet-400 animate-spin" />
-          )}
+          <button
+            onClick={() => fetchRange(range, true)}
+            disabled={isLoading}
+            className="p-1 rounded-md text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40"
+            title="Refresh data"
+          >
+            <RefreshCw size={13} className={isLoading ? 'animate-spin text-violet-400' : ''} />
+          </button>
           <RangeSelector range={range} setRange={setRange} />
         </div>
       </div>

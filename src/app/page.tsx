@@ -153,30 +153,26 @@ function DeFiPositions() {
   const [positions, setPositions] = useState<any[]>([])
   const [loading,   setLoading]   = useState(false)
   const [total,     setTotal]     = useState(0)
+  const [error,     setError]     = useState(false)
 
-  useEffect(() => {
+  const loadDefi = useCallback((force = false) => {
     if (!stableAddress) { setPositions([]); setTotal(0); return }
-
-    setLoading(true)
-    cachedFetch<any>('/api/defi', stableAddress)
-      .then(r => r.json())
+    setLoading(true); setError(false)
+    cachedFetch<any>('/api/defi', stableAddress, force)
       .then(data => {
         const all: any[] = data.positions ?? []
-
-        // Sort by netValueUSD descending, take top 3
         const top3 = [...all]
           .filter(p => (p.netValueUSD ?? 0) > 0)
           .sort((a, b) => (b.netValueUSD ?? 0) - (a.netValueUSD ?? 0))
           .slice(0, 3)
-
-        const totalDefi = all.reduce((s, p) => s + (p.netValueUSD ?? 0), 0)
-
         setPositions(top3)
-        setTotal(totalDefi)
+        setTotal(all.reduce((s, p) => s + (p.netValueUSD ?? 0), 0))
       })
-      .catch(() => {})
+      .catch(() => setError(true))
       .finally(() => setLoading(false))
   }, [stableAddress])
+
+  useEffect(() => { loadDefi() }, [loadDefi])
 
   // Type label formatter
   function typeLabel(type: string) {
@@ -199,9 +195,21 @@ function DeFiPositions() {
         <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
           DeFi Positions
         </h3>
-        <a href="/defi" className="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-0.5">
-          See all <ChevronRight size={12} />
-        </a>
+        <div className="flex items-center gap-2">
+          {isConnected && (
+            <button
+              onClick={() => loadDefi(true)}
+              disabled={loading}
+              className="p-1 rounded-md text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40"
+              title="Refresh DeFi positions"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin text-violet-400' : ''} />
+            </button>
+          )}
+          <a href="/defi" className="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-0.5">
+            See all <ChevronRight size={12} />
+          </a>
+        </div>
       </div>
 
       {/* Not connected */}
