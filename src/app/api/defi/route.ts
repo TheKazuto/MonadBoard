@@ -104,7 +104,7 @@ async function getTokenPricesUSD(symbols: string[]): Promise<Record<string, numb
 }
 
 // ─── NEVERLAND (Aave V3) ─────────────────────────────────────────────────────
-const NEVERLAND_POOL = '0x3c1B89Db834A833D0Cf48Ed8d36C70bFf8f1E1E1'
+const NEVERLAND_POOL = '0x80F00661b13CC5F6ccd3885bE7b4C9c67545D585' // Pool (Proxy) — from docs.neverland.money/smart-contracts
 const NEVERLAND_NTOKENS: Record<string, { symbol: string; decimals: number }> = {
   '0xD0fd2Cf7F6CEff4F96B1161F5E995D5843326154': { symbol: 'WMON',  decimals: 18 },
   '0x34c43684293963c546b0aB6841008A4d3393B9ab': { symbol: 'WBTC',  decimals: 8  },
