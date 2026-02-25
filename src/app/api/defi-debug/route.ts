@@ -2,105 +2,117 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const RPC = 'https://rpc.monad.xyz'
 
-// Known Curvance cToken addresses from docs
-const CTOKENS: Record<string, { symbol: string; underlying: string; decimals: number }> = {
-  '0xD9E2025b907E95EcC963A5018f56B87575B4aB26': { symbol: 'caprMON', underlying: 'aprMON', decimals: 18 },
-  '0xF32B334042DC1EB9732454cc9bc1a06205d184f2': { symbol: 'cWMON(apMON mkt)',  underlying: 'WMON',   decimals: 18 },
-  '0x926C101Cf0a3dE8725Eb24a93E980f9FE34d6230': { symbol: 'cshMON', underlying: 'shMON',  decimals: 18 },
-  '0x0fcEd51b526BfA5619F83d97b54a57e3327eB183': { symbol: 'cWMON(shMON mkt)', underlying: 'WMON',   decimals: 18 },
-  '0x494876051B0E85dCe5ecd5822B1aD39b9660c928': { symbol: 'csMON',  underlying: 'sMON',   decimals: 18 },
-  '0xebE45A6ceA7760a71D8e0fa5a0AE80a75320D708': { symbol: 'cWMON(sMON mkt)',  underlying: 'WMON',   decimals: 18 },
-}
-
-const PROTOCOL_READER = '0x878cDfc2F3D96a49A5CbD805FAF4F3080768a6d2'
-
-async function rpcCall(to: string, data: string) {
+async function rpc(method: string, params: any[]) {
   const res = await fetch(RPC, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_call', params: [{ to, data }, 'latest'], id: 1 }),
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
     cache: 'no-store',
   })
-  return (await res.json()).result ?? '0x'
+  return (await res.json()).result ?? null
 }
 
-async function rpcBatch(calls: any[]) {
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(calls),
-    cache: 'no-store',
-  })
-  const data = await res.json()
-  return Array.isArray(data) ? data : [data]
+async function call(to: string, data: string) {
+  return await rpc('eth_call', [{ to, data }, 'latest'])
 }
 
 function padAddr(addr: string) {
   return addr.slice(2).toLowerCase().padStart(64, '0')
 }
-function decodeUint(hex: string) {
-  if (!hex || hex === '0x') return 0n
-  return BigInt(hex)
-}
+
+// keccak256("Transfer(address,address,uint256)") — ERC-20 Transfer event
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')
   if (!address) return NextResponse.json({ error: 'need ?address=0x...' })
 
-  // 1. Check balanceOf and borrowBalanceStored for each cToken
-  const balCalls = Object.entries(CTOKENS).flatMap(([addr, info], i) => [
-    // balanceOf(user) - collateral/supply balance
-    { jsonrpc: '2.0', id: i * 3, method: 'eth_call', params: [{ to: addr, data: '0x70a08231' + padAddr(address) }, 'latest'] },
-    // borrowBalanceStored(user) - debt balance
-    { jsonrpc: '2.0', id: i * 3 + 1, method: 'eth_call', params: [{ to: addr, data: '0x95dd9193' + padAddr(address) }, 'latest'] },
-    // exchangeRateStored() - cToken → underlying rate
-    { jsonrpc: '2.0', id: i * 3 + 2, method: 'eth_call', params: [{ to: addr, data: '0x182df0f5' }, 'latest'] },
-  ])
+  const userTopic = '0x' + address.slice(2).toLowerCase().padStart(64, '0')
 
-  // 2. Also try ProtocolReader — getUserSnapshot(address,cToken[])
-  // selector for getUserSnapshot(address,address[]) = keccak256 first 4 bytes
-  // We'll try a few common view function selectors on ProtocolReader
-  const readerCalls = [
-    // Try calling with the user address to see what returns
-    { jsonrpc: '2.0', id: 999, method: 'eth_call', params: [{ to: PROTOCOL_READER, data: '0xf0f44260' + padAddr(address) }, 'latest'] },
-    { jsonrpc: '2.0', id: 998, method: 'eth_call', params: [{ to: PROTOCOL_READER, data: '0x9de07ba8' + padAddr(address) }, 'latest'] },
-  ]
+  // 1. Find all ERC-20 contracts that sent tokens TO the user (potential cToken deposits)
+  //    eth_getLogs: Transfer(from=any, to=user) in last ~500k blocks
+  const latestHex = await rpc('eth_blockNumber', [])
+  const latest = parseInt(latestHex, 16)
+  const fromBlock = '0x' + Math.max(0, latest - 200000).toString(16)
 
-  const results = await rpcBatch([...balCalls, ...readerCalls])
+  const logsTo = await rpc('eth_getLogs', [{
+    fromBlock,
+    toBlock: 'latest',
+    topics: [TRANSFER_TOPIC, null, userTopic],
+  }])
 
-  const cTokenData: any = {}
-  Object.entries(CTOKENS).forEach(([addr, info], i) => {
-    const bal      = decodeUint(results.find((r: any) => r.id === i * 3)?.result ?? '0x')
-    const debt     = decodeUint(results.find((r: any) => r.id === i * 3 + 1)?.result ?? '0x')
-    const exchRate = decodeUint(results.find((r: any) => r.id === i * 3 + 2)?.result ?? '0x')
+  // 2. Also transfers FROM user (borrows or withdrawals from cTokens)
+  const logsFrom = await rpc('eth_getLogs', [{
+    fromBlock,
+    toBlock: 'latest',
+    topics: [TRANSFER_TOPIC, userTopic, null],
+  }])
 
-    // Exchange rate is scaled by 1e18 in Compound-style: underlying = cTokens * exchangeRate / 1e18
-    const underlying = exchRate > 0n ? Number(bal) * Number(exchRate) / 1e36 : 0
-    const debtAmt    = Number(debt) / 1e18
+  // Collect unique contract addresses that interacted with user
+  const contractAddrs = new Set<string>()
+  for (const log of [...(logsTo ?? []), ...(logsFrom ?? [])]) {
+    contractAddrs.add(log.address.toLowerCase())
+  }
 
-    if (bal > 0n || debt > 0n) {
-      cTokenData[info.symbol] = {
-        addr,
-        underlying: info.underlying,
-        balRaw:     bal.toString(),
-        debtRaw:    debt.toString(),
-        exchRate:   exchRate.toString(),
-        underlyingAmount: underlying.toFixed(6),
-        debtAmount:  debtAmt.toFixed(6),
-        hasPosition: true,
-      }
-    }
+  // 3. For each unique contract, check balanceOf and borrowBalanceStored
+  const results: any[] = []
+  const batch: any[] = []
+  const addrList = [...contractAddrs]
+
+  addrList.forEach((addr, i) => {
+    batch.push({ jsonrpc: '2.0', id: i * 2,     method: 'eth_call', params: [{ to: addr, data: '0x70a08231' + padAddr(address) }, 'latest'] })
+    batch.push({ jsonrpc: '2.0', id: i * 2 + 1, method: 'eth_call', params: [{ to: addr, data: '0x95dd9193' + padAddr(address) }, 'latest'] })
   })
 
-  const readerRes: any = {}
-  for (const r of results.filter((r: any) => r.id >= 998)) {
-    readerRes[`id_${r.id}`] = r.result
+  let batchResults: any[] = []
+  if (batch.length > 0) {
+    const res = await fetch(RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(batch),
+      cache: 'no-store',
+    })
+    batchResults = await res.json()
+    if (!Array.isArray(batchResults)) batchResults = [batchResults]
+  }
+
+  for (let i = 0; i < addrList.length; i++) {
+    const addr = addrList[i]
+    const balHex  = batchResults.find((r: any) => r.id === i * 2)?.result ?? '0x'
+    const debtHex = batchResults.find((r: any) => r.id === i * 2 + 1)?.result ?? '0x'
+
+    const bal  = balHex  !== '0x' && balHex  ? BigInt(balHex)  : 0n
+    const debt = debtHex !== '0x' && debtHex ? BigInt(debtHex) : 0n
+
+    if (bal > 0n || debt > 0n) {
+      // Try to get symbol
+      const symHex = await call(addr, '0x95d89b41') // symbol()
+      let symbol = '?'
+      try {
+        if (symHex && symHex !== '0x' && symHex.length > 10) {
+          const hex = symHex.slice(2)
+          const offset = parseInt(hex.slice(0, 64), 16) * 2
+          const len    = parseInt(hex.slice(offset, offset + 64), 16)
+          symbol = Buffer.from(hex.slice(offset + 64, offset + 64 + len * 2), 'hex').toString('utf8')
+        }
+      } catch {}
+
+      results.push({
+        addr,
+        symbol,
+        balance:  bal.toString(),
+        debt:     debt.toString(),
+        balEther: (Number(bal) / 1e18).toFixed(6),
+        debtEther:(Number(debt) / 1e18).toFixed(6),
+      })
+    }
   }
 
   return NextResponse.json({
     address,
-    cTokenPositions: cTokenData,
-    protocolReaderProbes: readerRes,
-    allCtokensChecked: Object.keys(CTOKENS).length,
+    latestBlock: latest,
+    fromBlock: parseInt(fromBlock, 16),
+    uniqueContracts: contractAddrs.size,
+    positionsFound: results,
   })
 }
