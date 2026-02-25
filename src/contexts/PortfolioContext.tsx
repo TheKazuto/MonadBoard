@@ -1,5 +1,5 @@
-import { cachedFetch } from '@/lib/dataCache'
 'use client'
+import { cachedFetch } from '@/lib/dataCache'
 
 /**
  * PortfolioContext — single source of truth for portfolio totals.

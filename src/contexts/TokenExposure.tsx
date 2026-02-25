@@ -1,6 +1,7 @@
 'use client'
+import { cachedFetch, getCached } from '@/lib/dataCache'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { RefreshCw, Wallet } from 'lucide-react'

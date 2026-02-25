@@ -1,6 +1,7 @@
 'use client'
+import { cachedFetch, getCached } from '@/lib/dataCache'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useWallet }      from '@/contexts/WalletContext'
 import { usePreferences } from '@/contexts/PreferencesContext'
 import {
