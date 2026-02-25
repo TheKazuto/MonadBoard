@@ -8,42 +8,77 @@ async function batchCall(calls: any[]) {
 }
 function padAddr(a: string) { return a.slice(2).toLowerCase().padStart(64,'0') }
 
-const CWMON           = '0xf473568b26b8c5aadca9fbc0ea17e1728d5ec925'
-const KNOWN_DEBT      = '0x0acb7ef4d8733c719d60e0992b489b629bc55c02'
-const CANDIDATE_1     = '0x175cd6b817ff0d6425b4263e2f662229e58d7390' // returned by 0xb3d7f6b9(user)
-const CANDIDATE_2     = '0x15cee70aa6d77c847064e4a608efe2fdea4a284f' // returned by 0xef8b30f7(user)
-const DUMMY           = '0x0000000000000000000000000000000000000001'
+const CWMON      = '0xf473568b26b8c5aadca9fbc0ea17e1728d5ec925'
+const KNOWN_DEBT = '0x0acb7ef4d8733c719d60e0992b489b629bc55c02'
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')
   if (!address) return NextResponse.json({ error: 'need ?address=0x...' })
 
+  // 0x4b3fd148 was the inputSel of the borrow tx — this IS the borrow function
+  // The borrow tx called cWMON.0x4b3fd148(...) and created the debt token
+  // So the debt token address must be derivable from the user somehow
+  // 
+  // Key insight: b3d7f6b9(dummy=0x1) = 0x2, b3d7f6b9(knownDebt) = some other addr
+  // This looks like it converts between debt token ↔ something
+  // 
+  // Let's try: what does b3d7f6b9(user) return vs what is the actual debt token?
+  // user=0x169272... → b3d7f6b9 → 0x175cd6b8... (candidate1, not a contract)
+  // 
+  // NEW THEORY: The debt token 0x0acb7ef4 was created by the borrow tx
+  // Its address = CREATE2(cWMON, salt=keccak256(user), initcode)
+  // We need to find the mapping in cWMON storage: user → debtTokenAddress
+  //
+  // Let's try reading the tx INPUT data to understand the borrow call params
+  // and look for any function that takes address and returns the debt token addr
+
   const calls = [
-    // Is 0xb3d7f6b9 a user→debtToken mapping? Test with dummy address
-    {jsonrpc:'2.0',id:1, method:'eth_call', params:[{to:CWMON,data:'0xb3d7f6b9'+padAddr(DUMMY)},'latest']},
-    // cWMON.balanceOf on each candidate — which one has debt?
-    {jsonrpc:'2.0',id:2, method:'eth_call', params:[{to:CWMON,data:'0x70a08231'+padAddr(CANDIDATE_1)},'latest']},
-    {jsonrpc:'2.0',id:3, method:'eth_call', params:[{to:CWMON,data:'0x70a08231'+padAddr(CANDIDATE_2)},'latest']},
-    {jsonrpc:'2.0',id:4, method:'eth_call', params:[{to:CWMON,data:'0x70a08231'+padAddr(KNOWN_DEBT)},'latest']},
-    // What does 0xb3d7f6b9 return for the known debt token address?
-    {jsonrpc:'2.0',id:5, method:'eth_call', params:[{to:CWMON,data:'0xb3d7f6b9'+padAddr(KNOWN_DEBT)},'latest']},
-    // symbol of candidates
-    {jsonrpc:'2.0',id:6, method:'eth_call', params:[{to:CANDIDATE_1,data:'0x95d89b41'},'latest']},
-    {jsonrpc:'2.0',id:7, method:'eth_call', params:[{to:CANDIDATE_2,data:'0x95d89b41'},'latest']},
+    // Try all "interesting" selectors from bytecode with user address, looking for 0x0acb7ef4
+    // From the 159 selectors, try ones that could be "getDebtToken", "borrowerOf", etc.
+    // Focus on selectors we haven't tried yet
+    {jsonrpc:'2.0',id:1,  method:'eth_call', params:[{to:CWMON,data:'0x38d52e0f'},'latest']},             // asset() - ERC4626
+    {jsonrpc:'2.0',id:2,  method:'eth_call', params:[{to:CWMON,data:'0x7313ee5a'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:3,  method:'eth_call', params:[{to:CWMON,data:'0x7ada7a09'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:4,  method:'eth_call', params:[{to:CWMON,data:'0x9616756e'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:5,  method:'eth_call', params:[{to:CWMON,data:'0xa7af467a'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:6,  method:'eth_call', params:[{to:CWMON,data:'0xab21e628'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:7,  method:'eth_call', params:[{to:CWMON,data:'0x87367d71'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:8,  method:'eth_call', params:[{to:CWMON,data:'0x85b13080'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:9,  method:'eth_call', params:[{to:CWMON,data:'0x8f73dcfa'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:10, method:'eth_call', params:[{to:CWMON,data:'0x775a814a'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:11, method:'eth_call', params:[{to:CWMON,data:'0x7c0e0c8c'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:12, method:'eth_call', params:[{to:CWMON,data:'0x5722baf3'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:13, method:'eth_call', params:[{to:CWMON,data:'0x635d9771'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:14, method:'eth_call', params:[{to:CWMON,data:'0x5296a431'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:15, method:'eth_call', params:[{to:CWMON,data:'0x3ba0b9a9'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:16, method:'eth_call', params:[{to:CWMON,data:'0x402d267d'+padAddr(address)},'latest']}, // ?  maxDeposit(addr)
+    {jsonrpc:'2.0',id:17, method:'eth_call', params:[{to:CWMON,data:'0x40c09eba'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:18, method:'eth_call', params:[{to:CWMON,data:'0xa75df498'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:19, method:'eth_call', params:[{to:CWMON,data:'0x41ed2c12'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:20, method:'eth_call', params:[{to:CWMON,data:'0x371fd8e6'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:21, method:'eth_call', params:[{to:CWMON,data:'0x2f4a61d9'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:22, method:'eth_call', params:[{to:CWMON,data:'0x21570256'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:23, method:'eth_call', params:[{to:CWMON,data:'0x1dd19cb4'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:24, method:'eth_call', params:[{to:CWMON,data:'0x11005b07'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:25, method:'eth_call', params:[{to:CWMON,data:'0x17667967'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:26, method:'eth_call', params:[{to:CWMON,data:'0x1e75db16'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:27, method:'eth_call', params:[{to:CWMON,data:'0x0a28a477'+padAddr(address)},'latest']}, // ?
+    {jsonrpc:'2.0',id:28, method:'eth_call', params:[{to:CWMON,data:'0x0f0f5436'+padAddr(address)},'latest']}, // ?
   ]
 
   const results = await batchCall(calls)
-  const get = (id: number) => results.find((r:any) => r.id === id)?.result ?? '0x'
-  const toNum = (h: string) => h && h !== '0x' ? BigInt(h).toString() : '0'
-  const toAddr = (h: string) => h && h.length === 66 ? '0x'+h.slice(-40) : h
+  const zero = '0x'+'0'.repeat(64)
+  const KNOWN_DEBT_LOWER = KNOWN_DEBT.toLowerCase()
 
-  return NextResponse.json({
-    'b3d7f6b9(dummy)':          toAddr(get(1)),
-    'cWMON.balOf(candidate1)':  toNum(get(2)),
-    'cWMON.balOf(candidate2)':  toNum(get(3)),
-    'cWMON.balOf(knownDebt)':   toNum(get(4)),
-    'b3d7f6b9(knownDebt)':      toAddr(get(5)),
-    'candidate1_symbol':        get(6),
-    'candidate2_symbol':        get(7),
+  const hits: any[] = []
+  results.forEach((r: any) => {
+    if (!r.result || r.result === '0x' || r.result === zero) return
+    const val = r.result
+    const asAddr = val.length === 66 ? '0x'+val.slice(-40) : null
+    // Flag if it matches our known debt token!
+    const isDebtToken = asAddr?.toLowerCase() === KNOWN_DEBT_LOWER
+    hits.push({ id: r.id, result: val, asAddr, isDebtToken })
   })
+
+  return NextResponse.json({ hits, note: `Looking for debt token ${KNOWN_DEBT}` })
 }
