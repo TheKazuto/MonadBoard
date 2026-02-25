@@ -34,7 +34,7 @@ function resolveURI(uri: string): string {
   return uri.startsWith('ipfs://') ? uri.replace('ipfs://', 'https://ipfs.io/ipfs/') : uri
 }
 
-// ─── Step 1: Etherscan tokennfttx chainid=143 (Monad mainnet) ─────────────────
+// ─── Step 1 ───────────────────────────────────────────────────────────────────
 async function discoverNFTs(address: string, apiKey: string) {
   const url = `https://api.etherscan.io/v2/api?chainid=143&module=account&action=tokennfttx&address=${address}&page=1&offset=100&sort=desc&apikey=${apiKey}`
   const res  = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(12_000) })
@@ -54,7 +54,7 @@ async function discoverNFTs(address: string, apiKey: string) {
     .map(tx => ({ contract: tx.contractAddress.toLowerCase(), tokenId: BigInt(tx.tokenID) }))
 }
 
-// ─── Step 2: verify ownerOf ───────────────────────────────────────────────────
+// ─── Step 2 ───────────────────────────────────────────────────────────────────
 async function verifyOwnership(candidates: { contract: string; tokenId: bigint }[], address: string) {
   const calls = candidates.map((c, i) => ({
     jsonrpc: '2.0', method: 'eth_call',
@@ -71,7 +71,7 @@ async function verifyOwnership(candidates: { contract: string; tokenId: bigint }
   })
 }
 
-// ─── Step 3: on-chain name/symbol/tokenURI ────────────────────────────────────
+// ─── Step 3 ───────────────────────────────────────────────────────────────────
 async function fetchOnChainMeta(owned: { contract: string; tokenId: bigint }[]) {
   const contracts = [...new Set(owned.map(t => t.contract))]
   const [nameRes, symRes, uriRes] = await Promise.all([
@@ -95,99 +95,95 @@ async function fetchTokenMeta(uri: string) {
   } catch { return null }
 }
 
-// ─── Step 4: Floor price via ME v4 evm-public API (no key needed) ─────────────
-// Strategy A: user-assets — returns NFTs with floor price info (best for wallets)
-// Strategy B: collections search by contract address
-// Strategy C: v3/rtp/monad collections endpoint (legacy)
-
-async function fetchFloorPricesForWallet(
+// ─── Step 4: Floor prices with FULL debug output ───────────────────────────────
+async function fetchFloorPricesDebug(
   address: string,
   contracts: string[]
-): Promise<Record<string, number>> {
-  const result: Record<string, number> = {}
-  contracts.forEach(c => { result[c] = 0 })
+): Promise<{ floorMap: Record<string, number>; log: string[] }> {
+  const floorMap: Record<string, number> = {}
+  contracts.forEach(c => { floorMap[c] = 0 })
+  const log: string[] = []
 
-  // ── Strategy A: ME v4 user-assets (returns all NFTs with floor prices) ──
+  // ── A: v4 user-assets ──
   try {
-    const url = `https://api-mainnet.magiceden.dev/v4/evm-public/assets/user-assets?` +
-      `chain_id=${MONAD_CHAIN_ID}&wallet_address=${address}&limit=100`
-    const r = await fetch(url, {
-      headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(8_000),
-      cache: 'no-store',
-    })
+    const url = `https://api-mainnet.magiceden.dev/v4/evm-public/assets/user-assets?chain_id=${MONAD_CHAIN_ID}&wallet_address=${address}&limit=100`
+    log.push(`A GET ${url}`)
+    const r = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8_000), cache: 'no-store' })
+    log.push(`A status=${r.status}`)
     if (r.ok) {
-      const data = await r.json()
-      // Response structure: { assets: [{ contract_address, floor_price, ... }] }
-      const assets: any[] = data?.assets ?? data?.data ?? data?.results ?? []
+      const body = await r.json()
+      log.push(`A keys=${Object.keys(body).join(',')}`)
+      const assets: any[] = body?.assets ?? body?.data ?? body?.results ?? body?.items ?? []
+      log.push(`A assets_count=${assets.length}`)
+      if (assets.length > 0) log.push(`A sample_keys=${Object.keys(assets[0]).slice(0, 10).join(',')}`)
       for (const asset of assets) {
-        const c = (asset?.contract_address ?? asset?.contractAddress ?? '').toLowerCase()
-        if (!c || !result.hasOwnProperty(c)) continue
-        const floor =
-          asset?.floor_price ??
-          asset?.floorPrice ??
-          asset?.collection?.floor_price ??
-          asset?.collection?.floorPrice ??
-          0
-        if (floor > 0 && result[c] === 0) result[c] = Number(floor)
-      }
-      // If we got data, check if any contracts are still missing
-      const missing = contracts.filter(c => result[c] === 0)
-      if (missing.length === 0) return result
-      console.log('[nfts] v4 user-assets: missing floor for', missing)
-    } else {
-      console.log('[nfts] v4 user-assets HTTP', r.status)
-    }
-  } catch (e: any) {
-    console.log('[nfts] v4 user-assets error:', e.message)
-  }
-
-  // ── Strategy B: ME v4 collections/search per contract ──
-  const stillMissing = contracts.filter(c => result[c] === 0)
-  await Promise.all(stillMissing.map(async (contract) => {
-    try {
-      const url = `https://api-mainnet.magiceden.dev/v4/evm-public/collections/search?` +
-        `chain_id=${MONAD_CHAIN_ID}&contract_address=${contract}&limit=1`
-      const r = await fetch(url, {
-        headers: { accept: 'application/json' },
-        signal: AbortSignal.timeout(6_000),
-        cache: 'no-store',
-      })
-      if (r.ok) {
-        const data = await r.json()
-        const col  = (data?.collections ?? data?.data ?? [])[0]
-        const floor = col?.floor_price ?? col?.floorPrice ?? col?.stats?.floor_price ?? 0
-        if (floor > 0) result[contract] = Number(floor)
-        console.log('[nfts] v4 search', contract, '→', floor)
-      } else {
-        console.log('[nfts] v4 search HTTP', r.status, 'for', contract)
-      }
-    } catch (e: any) {
-      console.log('[nfts] v4 search error', contract, e.message)
-    }
-  }))
-
-  // ── Strategy C: v3/rtp/monad (legacy, may work with API key) ──
-  const stillMissing2 = contracts.filter(c => result[c] === 0)
-  const meKey = process.env.MAGIC_EDEN_API_KEY
-  if (stillMissing2.length && meKey) {
-    await Promise.all(stillMissing2.map(async (contract) => {
-      try {
-        const url = `https://api-mainnet.magiceden.dev/v3/rtp/monad/collections/v7?id=${contract}&limit=1`
-        const r   = await fetch(url, {
-          headers: { accept: 'application/json', 'Authorization': `Bearer ${meKey}` },
-          signal: AbortSignal.timeout(5_000),
-          cache: 'no-store',
-        })
-        if (r.ok) {
-          const floor = (await r.json())?.collections?.[0]?.floorAsk?.price?.amount?.native ?? 0
-          if (floor > 0) result[contract] = Number(floor)
+        const c = (asset?.contract_address ?? asset?.contractAddress ?? asset?.collection?.contract_address ?? '').toLowerCase()
+        if (contracts.includes(c)) {
+          const floor = asset?.floor_price ?? asset?.floorPrice ?? asset?.collection?.floor_price ?? asset?.collection?.floorPrice ?? 0
+          log.push(`A found contract=${c} floor=${floor}`)
+          if (floor > 0) floorMap[c] = Number(floor)
         }
-      } catch { /* ignore */ }
-    }))
+      }
+    } else {
+      const text = await r.text().catch(() => '')
+      log.push(`A error_body=${text.slice(0, 200)}`)
+    }
+  } catch (e: any) { log.push(`A exception=${e.message}`) }
+
+  // ── B: v4 collections/search per contract ──
+  for (const contract of contracts.filter(c => floorMap[c] === 0)) {
+    try {
+      const url = `https://api-mainnet.magiceden.dev/v4/evm-public/collections/search?chain_id=${MONAD_CHAIN_ID}&contract_address=${contract}&limit=1`
+      log.push(`B GET ${url}`)
+      const r = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6_000), cache: 'no-store' })
+      log.push(`B status=${r.status}`)
+      if (r.ok) {
+        const body = await r.json()
+        log.push(`B keys=${Object.keys(body).join(',')}`)
+        const items: any[] = body?.collections ?? body?.data ?? body?.results ?? body?.items ?? []
+        log.push(`B items_count=${items.length}`)
+        if (items.length > 0) log.push(`B item0_keys=${Object.keys(items[0]).slice(0, 15).join(',')}`)
+        const col = items[0]
+        const floor = col?.floor_price ?? col?.floorPrice ?? col?.stats?.floor_price ?? col?.stats?.floorPrice ?? 0
+        log.push(`B floor=${floor}`)
+        if (floor > 0) floorMap[contract] = Number(floor)
+      } else {
+        const text = await r.text().catch(() => '')
+        log.push(`B error_body=${text.slice(0, 200)}`)
+      }
+    } catch (e: any) { log.push(`B exception=${e.message}`) }
   }
 
-  return result
+  // ── C: v3/rtp/monad ──
+  for (const contract of contracts.filter(c => floorMap[c] === 0)) {
+    const meKey = process.env.MAGIC_EDEN_API_KEY
+    try {
+      const url = `https://api-mainnet.magiceden.dev/v3/rtp/monad/collections/v7?id=${contract}&limit=1`
+      log.push(`C GET ${url}`)
+      const headers: Record<string,string> = { accept: 'application/json' }
+      if (meKey) headers['Authorization'] = `Bearer ${meKey}`
+      const r = await fetch(url, { headers, signal: AbortSignal.timeout(6_000), cache: 'no-store' })
+      log.push(`C status=${r.status}`)
+      if (r.ok) {
+        const body = await r.json()
+        const col  = body?.collections?.[0]
+        log.push(`C col=${col?.name ?? 'null'} floor=${col?.floorAsk?.price?.amount?.native ?? 0}`)
+        const floor = col?.floorAsk?.price?.amount?.native ?? 0
+        if (floor > 0) floorMap[contract] = Number(floor)
+      } else {
+        const text = await r.text().catch(() => '')
+        log.push(`C error_body=${text.slice(0, 200)}`)
+      }
+    } catch (e: any) { log.push(`C exception=${e.message}`) }
+  }
+
+  return { floorMap, log }
+}
+
+// Non-debug version for production
+async function fetchFloorPrices(address: string, contracts: string[]): Promise<Record<string, number>> {
+  const { floorMap } = await fetchFloorPricesDebug(address, contracts)
+  return floorMap
 }
 
 // ─── Main route ───────────────────────────────────────────────────────────────
@@ -203,30 +199,26 @@ export async function GET(req: NextRequest) {
   if (!apiKey) return NextResponse.json({ error: 'no_api_key', nfts: [], nftValue: 0, total: 0 })
 
   try {
-    // 1. Discover via Etherscan
     const candidates = await discoverNFTs(address, apiKey)
     if (!candidates.length) return NextResponse.json({ nfts: [], nftValue: 0, total: 0 })
 
-    // 2. Verify ownership
     const owned = await verifyOwnership(candidates, address)
     if (!owned.length) return NextResponse.json({ nfts: [], nftValue: 0, total: 0 })
 
     const cap   = owned.slice(0, 20)
     const total = owned.length
-
-    // 3. On-chain metadata
     const { cMeta, uriRes } = await fetchOnChainMeta(cap)
     const contracts = [...new Set(cap.map(t => t.contract))]
 
-    // 4. All parallel: token JSON metadata + floor prices (via ME v4) + MON price
-    const [metaResults, floorMap, monPrice] = await Promise.all([
+    const [metaResults, floorResult, monPrice] = await Promise.all([
       Promise.all(cap.map((_, i) => fetchTokenMeta(decodeString(uriRes[i]?.result ?? '')))),
-      fetchFloorPricesForWallet(address, contracts),
+      isDebug ? fetchFloorPricesDebug(address, contracts) : fetchFloorPrices(address, contracts).then(fm => ({ floorMap: fm, log: [] as string[] })),
       fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd', { next: { revalidate: 60 } })
         .then(r => r.json()).then(d => (d?.monad?.usd ?? 0) as number).catch(() => 0),
     ])
 
-    // 5. Build response
+    const { floorMap, log } = floorResult
+
     const nfts = cap.map(({ contract, tokenId }, i) => {
       const cm         = cMeta[contract] ?? { name: '', symbol: '' }
       const meta       = metaResults[i]
@@ -248,14 +240,11 @@ export async function GET(req: NextRequest) {
     })
 
     const nftValue = nfts.reduce((s, n) => s + n.floorUSD, 0)
-    const debugInfo = isDebug ? {
-      monPrice,
-      meApiKey: !!process.env.MAGIC_EDEN_API_KEY,
-      floorMap,
-      contracts,
-    } : undefined
 
-    return NextResponse.json({ nfts, nftValue, total, ...(debugInfo ? { debug: debugInfo } : {}) })
+    return NextResponse.json({
+      nfts, nftValue, total,
+      ...(isDebug ? { debug: { monPrice, meApiKey: !!process.env.MAGIC_EDEN_API_KEY, floorMap, log } } : {}),
+    })
 
   } catch (err: any) {
     console.error('[nfts]', err?.message)
