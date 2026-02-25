@@ -602,44 +602,26 @@ const CURVANCE_CTOKENS: Record<string, { underlying: string; decimals: number; m
 async function fetchCurvance(user: string): Promise<any[]> {
   try {
     const addrs = Object.keys(CURVANCE_CTOKENS)
-    // balanceOf(user) + borrowBalanceStored(user) + exchangeRateStored() per cToken
-    const calls = addrs.flatMap((addr, i) => [
-      ethCall(addr, balanceOfData(user),  i * 3),
-      ethCall(addr, '0x95dd9193' + user.slice(2).toLowerCase().padStart(64, '0'), i * 3 + 1), // borrowBalanceStored
-      ethCall(addr, '0x182df0f5', i * 3 + 2), // exchangeRateStored()
-    ])
+    // Curvance cTokens are 1:1 with underlying (no exchangeRate, confirmed on-chain)
+    // borrowBalanceStored() does not exist in Curvance — pure collateral vaults for now
+    const calls = addrs.map((addr, i) => ethCall(addr, balanceOfData(user), i))
     const results = await rpcBatch(calls)
 
-    // Group by market — each market can have collateral + debt side
+    // Group by market
     const markets: Record<string, { collateral: any[]; debt: any[] }> = {}
     const allSymbols: string[] = []
 
     addrs.forEach((addr, i) => {
-      const info     = CURVANCE_CTOKENS[addr]
-      const balRaw   = decodeUint(results.find((r: any) => r.id === i * 3)?.result ?? '0x')
-      const debtRaw  = decodeUint(results.find((r: any) => r.id === i * 3 + 1)?.result ?? '0x')
-      const exchRate = decodeUint(results.find((r: any) => r.id === i * 3 + 2)?.result ?? '0x')
-
-      if (balRaw === 0n && debtRaw === 0n) return
+      const info   = CURVANCE_CTOKENS[addr]
+      const balRaw = decodeUint(results.find((r: any) => r.id === i)?.result ?? '0x')
+      if (balRaw === 0n) return
 
       if (!markets[info.market]) markets[info.market] = { collateral: [], debt: [] }
 
-      // Compound-style: underlying = cTokenBalance * exchangeRate / 1e18
-      // exchangeRateStored is scaled at 1e18 (mantissa)
-      const amount = exchRate > 0n
-        ? Number(balRaw) * Number(exchRate) / 1e36
-        : Number(balRaw) / Math.pow(10, info.decimals)
-
-      const debtAmt = Number(debtRaw) / Math.pow(10, info.decimals)
-
-      if (balRaw > 0n) {
-        markets[info.market].collateral.push({ symbol: info.underlying, amount, amountUSD: 0 })
-        allSymbols.push(info.underlying)
-      }
-      if (debtRaw > 0n) {
-        markets[info.market].debt.push({ symbol: info.underlying, amount: debtAmt, amountUSD: 0 })
-        allSymbols.push(info.underlying)
-      }
+      // 1 cToken = 1 underlying (Curvance architecture, confirmed from on-chain tx)
+      const amount = Number(balRaw) / Math.pow(10, info.decimals)
+      markets[info.market].collateral.push({ symbol: info.underlying, amount, amountUSD: 0 })
+      allSymbols.push(info.underlying)
     })
 
     if (!Object.keys(markets).length) return []
