@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { WalletContextProvider } from '@/contexts/WalletContext'
 import { PortfolioProvider }     from '@/contexts/PortfolioContext'
 import { TransactionProvider }   from '@/contexts/TransactionContext'
+import { PreferencesProvider }   from '@/contexts/PreferencesContext'
 
 import '@rainbow-me/rainbowkit/styles.css'
 
@@ -47,14 +48,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           })}
           locale="en-US"
         >
-          {/* WalletContextProvider must be INSIDE WagmiProvider so useAccount() works */}
-          <WalletContextProvider>
-            <PortfolioProvider>
-              <TransactionProvider>
-                {children}
-              </TransactionProvider>
-            </PortfolioProvider>
-          </WalletContextProvider>
+          <PreferencesProvider>
+            <WalletContextProvider>
+              <PortfolioProvider>
+                <TransactionProvider>
+                  {children}
+                </TransactionProvider>
+              </PortfolioProvider>
+            </WalletContextProvider>
+          </PreferencesProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

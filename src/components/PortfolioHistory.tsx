@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useWallet } from '@/contexts/WalletContext'
+import { useWallet }      from '@/contexts/WalletContext'
+import { usePreferences } from '@/contexts/PreferencesContext'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
@@ -80,7 +81,8 @@ function Skeleton() {
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PortfolioHistory() {
   const { address, isConnected } = useWallet()
-  const [range, setRange] = useState<Range>('30d')
+  const { defaultRange } = usePreferences()
+  const [range, setRange] = useState<Range>(defaultRange)
   const [data, setData] = useState<Record<Range, ApiResponse | null>>({
     '7d': null, '30d': null, '90d': null, '1y': null,
   })

@@ -8,6 +8,7 @@ import TokenExposure from '@/components/TokenExposure'
 import PortfolioHistory from '@/components/PortfolioHistory'
 import { usePortfolio } from '@/contexts/PortfolioContext'
 import { useWallet }    from '@/contexts/WalletContext'
+import { usePreferences } from '@/contexts/PreferencesContext'
 import {
   RefreshCw, Wallet, Image,
   Zap, ChevronRight, Bell,
@@ -26,6 +27,7 @@ function fmt(v: number) {
 function WalletSummary() {
   const { totals, status, lastUpdated, refresh } = usePortfolio()
   const { isConnected } = useWallet()
+  const { fmtValue } = usePreferences()
 
   const isLoading = status === 'loading'
   const isPartial = status === 'partial'
@@ -60,7 +62,7 @@ function WalletSummary() {
               <div className="w-48 h-10 rounded-lg bg-white/20 animate-pulse mt-1" />
             ) : (
               <h2 className="text-white font-display text-4xl font-bold" style={{ fontFamily: 'Sora, sans-serif' }}>
-                {fmt(totals.totalValueUSD)}
+                {fmtValue(totals.totalValueUSD)}
               </h2>
             )}
 
@@ -103,7 +105,7 @@ function WalletSummary() {
             ) : isLoading ? (
               <Shimmer />
             ) : (
-              <p className="text-white font-semibold text-lg">{fmt(totals.tokenValueUSD)}</p>
+              <p className="text-white font-semibold text-lg">{fmtValue(totals.tokenValueUSD)}</p>
             )}
           </div>
 
@@ -118,7 +120,7 @@ function WalletSummary() {
             ) : isLoading ? (
               <Shimmer />
             ) : (
-              <p className="text-white font-semibold text-lg">{fmt(totals.nftValueUSD)}</p>
+              <p className="text-white font-semibold text-lg">{fmtValue(totals.nftValueUSD)}</p>
             )}
           </div>
 
@@ -133,7 +135,7 @@ function WalletSummary() {
             ) : isLoading ? (
               <Shimmer />
             ) : (
-              <p className="text-white font-semibold text-lg">{fmt(totals.defiNetValueUSD)}</p>
+              <p className="text-white font-semibold text-lg">{fmtValue(totals.defiNetValueUSD)}</p>
             )}
           </div>
 
@@ -146,6 +148,7 @@ function WalletSummary() {
 // ─── DeFi Positions widget (dashboard mini preview — top 3) ──────────────────
 function DeFiPositions() {
   const { address, isConnected } = useWallet()
+  const { fmtValue } = usePreferences()
   const [positions, setPositions] = useState<any[]>([])
   const [loading,   setLoading]   = useState(false)
   const [total,     setTotal]     = useState(0)
@@ -266,7 +269,7 @@ function DeFiPositions() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-bold text-gray-800">{fmt(value)}</p>
+                    <p className="text-sm font-bold text-gray-800">{fmtValue(value)}</p>
                     {apy != null && apy > 0 && (
                       <p className="text-xs text-emerald-600 font-medium">+{apy.toFixed(1)}% APY</p>
                     )}

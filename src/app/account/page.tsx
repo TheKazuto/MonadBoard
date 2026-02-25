@@ -1,17 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useWallet }   from '@/contexts/WalletContext'
-import { usePortfolio } from '@/contexts/PortfolioContext'
-import { User, Copy, ExternalLink, Shield, Bell, Wallet, CheckCircle, Lock } from 'lucide-react'
-
-function fmt(v: number) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(2)}K`
-  if (v >= 1)         return `$${v.toFixed(2)}`
-  if (v > 0)          return `$${v.toFixed(4)}`
-  return '$0.00'
-}
+import { useWallet }        from '@/contexts/WalletContext'
+import { usePortfolio }     from '@/contexts/PortfolioContext'
+import { usePreferences }   from '@/contexts/PreferencesContext'
+import type { Currency, TimeRange } from '@/contexts/PreferencesContext'
+import { User, Copy, ExternalLink, Shield, CheckCircle, Lock } from 'lucide-react'
 
 function shortenAddress(addr: string) {
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`
@@ -23,6 +17,7 @@ export default function AccountPage() {
 
   const { address, isConnected, disconnect } = useWallet()
   const { totals, status } = usePortfolio()
+  const { currency, defaultRange, setCurrency, setDefaultRange, fmtValue, rates, ratesUpdatedAt } = usePreferences()
 
   const isLoading = status === 'loading'
 
@@ -86,7 +81,7 @@ export default function AccountPage() {
                   {isLoading ? (
                     <span className="inline-block w-20 h-4 bg-white/20 rounded animate-pulse align-middle" />
                   ) : (
-                    <span className="text-white font-bold">{fmt(totals.totalValueUSD)}</span>
+                    <span className="text-white font-bold">{fmtValue(totals.totalValueUSD)}</span>
                   )}
                 </p>
               </>
@@ -138,22 +133,72 @@ export default function AccountPage() {
       <div className="card p-5">
         <h2 className="font-display font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>Preferences</h2>
         <div className="space-y-4">
-          {[
-            { label: 'Currency Display', desc: 'Show values in USD', value: 'USD', type: 'select', options: ['USD', 'EUR', 'BRL'] },
-            { label: 'Default Time Range', desc: 'Chart history default', value: '30d', type: 'select', options: ['7d', '30d', '90d', '1y'] },
-          ].map(pref => (
-            <div key={pref.label} className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-800">{pref.label}</p>
-                <p className="text-xs text-gray-400">{pref.desc}</p>
-              </div>
-              <select className="text-sm border border-violet-100 rounded-lg px-3 py-1.5 text-gray-700 bg-violet-50/30 focus:outline-none focus:border-violet-300">
-                {pref.options.map(opt => (
-                  <option key={opt} value={opt} selected={opt === pref.value}>{opt}</option>
-                ))}
-              </select>
+          {/* Currency */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-800">Currency Display</p>
+              <p className="text-xs text-gray-400">Show portfolio values in your preferred currency</p>
             </div>
-          ))}
+            <select
+              value={currency}
+              onChange={e => setCurrency(e.target.value as Currency)}
+              className="text-sm border border-violet-100 rounded-lg px-3 py-1.5 text-gray-700 bg-violet-50/30 focus:outline-none focus:border-violet-300"
+            >
+              <option value="USD">USD ($)</option>
+              <option value="EUR">EUR (€)</option>
+              <option value="BRL">BRL (R$)</option>
+            </select>
+          </div>
+
+          {/* Live exchange rates */}
+          <div className="rounded-xl bg-violet-50/60 border border-violet-100 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-violet-700">Live Exchange Rates (vs USD)</p>
+              {ratesUpdatedAt ? (
+                <p className="text-[10px] text-violet-400">
+                  Updated {new Date(ratesUpdatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                </p>
+              ) : (
+                <p className="text-[10px] text-violet-400">Fallback rates</p>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {(['USD', 'EUR', 'BRL'] as Currency[]).map(c => (
+                <div
+                  key={c}
+                  onClick={() => setCurrency(c)}
+                  className={`rounded-lg p-2 text-center cursor-pointer transition-all ${
+                    currency === c
+                      ? 'bg-violet-600 text-white'
+                      : 'bg-white border border-violet-100 hover:border-violet-300'
+                  }`}
+                >
+                  <p className={`text-xs font-bold ${currency === c ? 'text-white' : 'text-gray-700'}`}>{c}</p>
+                  <p className={`text-[11px] mt-0.5 ${currency === c ? 'text-violet-200' : 'text-gray-400'}`}>
+                    {c === 'USD' ? '1.0000' : rates[c].toFixed(4)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Default time range */}
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-800">Default Time Range</p>
+              <p className="text-xs text-gray-400">Default range for portfolio history charts</p>
+            </div>
+            <select
+              value={defaultRange}
+              onChange={e => setDefaultRange(e.target.value as TimeRange)}
+              className="text-sm border border-violet-100 rounded-lg px-3 py-1.5 text-gray-700 bg-violet-50/30 focus:outline-none focus:border-violet-300"
+            >
+              <option value="7d">7 Days</option>
+              <option value="30d">30 Days</option>
+              <option value="90d">90 Days</option>
+              <option value="1y">1 Year</option>
+            </select>
+          </div>
         </div>
       </div>
 
