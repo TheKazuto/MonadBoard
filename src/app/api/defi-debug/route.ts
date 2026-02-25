@@ -1,77 +1,94 @@
 import { NextRequest, NextResponse } from 'next/server'
 const RPC = 'https://rpc.monad.xyz'
 
+async function rpc(method: string, params: any[]) {
+  const res = await fetch(RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), cache: 'no-store' })
+  return (await res.json()).result ?? null
+}
 async function batchCall(calls: any[]) {
   const res = await fetch(RPC, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(calls), cache: 'no-store' })
   const d = await res.json(); return Array.isArray(d) ? d : [d]
 }
 function padAddr(a: string) { return a.slice(2).toLowerCase().padStart(64, '0') }
-function decodeUint(h: string) { return (!h || h === '0x') ? 0n : BigInt(h) }
-function decodeAddr(h: string) { return (!h || h.length < 42) ? null : '0x' + h.slice(-40) }
 
-const CWMON = '0xf473568b26b8c5aadca9fbc0ea17e1728d5ec925'
-// Known debt token for this user from borrow tx
-const DEBT_TOKEN = '0x0acb7ef4d8733c719d60e0992b489b629bc55c02'
+const CWMON          = '0xf473568b26b8c5aadca9fbc0ea17e1728d5ec925'
+const MARKET_MANAGER = '0xb00aff53a4df2b4e2f97a3d9ffadb55564c8e42f'
+// From borrow tx: topic0 of the non-Transfer log on cWMON
+// 0x4e32a70f... and 0xbec1750e... and 0x5cbb919... 
+// The event 0x5cbb919307f3804aff990e94bdc923c0878589779d539552a35353302b8ed8e5
+// emitted by MarketManager with data = cWMON address — likely "MarketEntered" or "DebtTokenCreated"
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')
   if (!address) return NextResponse.json({ error: 'need ?address=0x...' })
 
-  // Try multiple selectors on cWMON to find the one that maps user → debt token
-  const selectors: Record<string, string> = {
-    'debtTokenOf(addr)':        '0x3b2c0b77',
-    'getDebtToken(addr)':       '0xa6333d9e',
-    'debtAccountOf(addr)':      '0x9a4de1a6',
-    'positionOf(addr)':         '0x8e5d588e',
-    'getBorrowData(addr)':      '0xc4d66de8',
-    'accountOf(addr)':          '0xf4f3b200',
-    'getUserDebt(addr)':        '0x741bef1a',
-    'lenderDebtToken(addr)':    '0x1c1b8772',
-    'debtOf(addr)':             '0x7d945c6f',
-    'borrowerOf(addr)':         '0x5be7fde8',
-    'getDebtAccount(addr)':     '0x0e6f3b6d',
-    'debtTokenAccount(addr)':   '0x2ef7b935',
-  }
+  const latestHex = await rpc('eth_blockNumber', [])
+  const latest    = parseInt(latestHex, 16)
+  const userTopic = '0x' + address.slice(2).toLowerCase().padStart(64, '0')
 
-  const calls: any[] = []
-  // Try all selectors on cWMON with user address
-  Object.entries(selectors).forEach(([name, sel], i) => {
-    calls.push({ jsonrpc: '2.0', id: i, method: 'eth_call', params: [{ to: CWMON, data: sel + padAddr(address) }, 'latest'] })
-  })
+  // The borrow tx showed cWMON minted to 0x0acb7ef4... (debt token account)
+  // That Transfer had from=0x0000... to=debtAccount
+  // So scanning cWMON Transfer(from=zero, to=?) filtered by user-related events
+  // But we need to find WHICH debt account belongs to THIS user
+  
+  // Strategy: scan ALL events on MarketManager where user is mentioned
+  // The MarketManager event 0x5cbb919... had data = cWMON — it's likely "position opened"
+  // Let's find ALL MarketManager events mentioning this user in any topic
 
-  // Also: check balanceOf(known debt token) on cWMON — maybe cWMON tracks it
-  calls.push({ jsonrpc: '2.0', id: 100, method: 'eth_call', params: [{ to: CWMON, data: '0x70a08231' + padAddr(DEBT_TOKEN) }, 'latest'] })
-  // balanceOf(user) on DEBT_TOKEN contract itself
-  calls.push({ jsonrpc: '2.0', id: 101, method: 'eth_call', params: [{ to: DEBT_TOKEN, data: '0x70a08231' + padAddr(address) }, 'latest'] })
-  // balanceOf(debt_token) on DEBT_TOKEN — maybe it stores its own balance
-  calls.push({ jsonrpc: '2.0', id: 102, method: 'eth_call', params: [{ to: DEBT_TOKEN, data: '0x70a08231' + padAddr(DEBT_TOKEN) }, 'latest'] })
-  // totalSupply of DEBT_TOKEN
-  calls.push({ jsonrpc: '2.0', id: 103, method: 'eth_call', params: [{ to: DEBT_TOKEN, data: '0x18160ddd' }, 'latest'] })
-  // symbol of DEBT_TOKEN
-  calls.push({ jsonrpc: '2.0', id: 104, method: 'eth_call', params: [{ to: DEBT_TOKEN, data: '0x95d89b41' }, 'latest'] })
-  // balanceOf(user) on cWMON directly
-  calls.push({ jsonrpc: '2.0', id: 105, method: 'eth_call', params: [{ to: CWMON, data: '0x70a08231' + padAddr(address) }, 'latest'] })
-  // Try: does DEBT_TOKEN have an "owner()" or "borrower()"?
-  calls.push({ jsonrpc: '2.0', id: 106, method: 'eth_call', params: [{ to: DEBT_TOKEN, data: '0x8da5cb5b' }, 'latest'] }) // owner()
-  calls.push({ jsonrpc: '2.0', id: 107, method: 'eth_call', params: [{ to: DEBT_TOKEN, data: '0xb6549f75' }, 'latest'] }) // borrower() / lender()
-  calls.push({ jsonrpc: '2.0', id: 108, method: 'eth_call', params: [{ to: DEBT_TOKEN, data: '0xae6e2953' }, 'latest'] }) // cToken()
-  calls.push({ jsonrpc: '2.0', id: 109, method: 'eth_call', params: [{ to: DEBT_TOKEN, data: '0xfc0c546a' }, 'latest'] }) // token() / underlying
+  const mmLogs = await rpc('eth_getLogs', [{
+    fromBlock: '0x0',
+    toBlock: 'latest',
+    address: MARKET_MANAGER,
+    topics: [null, userTopic],  // user as topic[1]
+  }])
 
-  const results = await batchCall(calls)
+  const mmLogs2 = await rpc('eth_getLogs', [{
+    fromBlock: '0x0',
+    toBlock: 'latest',
+    address: MARKET_MANAGER,
+    topics: [null, null, userTopic],  // user as topic[2]
+  }])
+
+  // Also scan cWMON for any event mentioning user
+  const cwmonLogs = await rpc('eth_getLogs', [{
+    fromBlock: '0x0',
+    toBlock: 'latest',
+    address: CWMON,
+    topics: [null, userTopic],
+  }])
+  const cwmonLogs2 = await rpc('eth_getLogs', [{
+    fromBlock: '0x0',
+    toBlock: 'latest',
+    address: CWMON,
+    topics: [null, null, userTopic],
+  }])
+
+  // Also try: does cWMON have a mapping user→debtToken?
+  // Common patterns: getDebtPosition(user), debtPositionOf(user), positions(user)
+  const mapCalls = [
+    { jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: CWMON, data: '0x2726d3ef' + padAddr(address) }, 'latest'] }, // debtPosition(addr)
+    { jsonrpc: '2.0', id: 2, method: 'eth_call', params: [{ to: CWMON, data: '0x9e2517d3' + padAddr(address) }, 'latest'] }, // positions(addr)
+    { jsonrpc: '2.0', id: 3, method: 'eth_call', params: [{ to: CWMON, data: '0x715b208b' + padAddr(address) }, 'latest'] }, // getPosition(addr)
+    { jsonrpc: '2.0', id: 4, method: 'eth_call', params: [{ to: CWMON, data: '0x9153b9e1' + padAddr(address) }, 'latest'] }, // debtPositionOf(addr)
+    { jsonrpc: '2.0', id: 5, method: 'eth_call', params: [{ to: CWMON, data: '0xeee2e346' + padAddr(address) }, 'latest'] }, // getDebtPosition(addr)
+    { jsonrpc: '2.0', id: 6, method: 'eth_call', params: [{ to: CWMON, data: '0x6f307dc3' + padAddr(address) }, 'latest'] }, // getUser(addr)
+    { jsonrpc: '2.0', id: 7, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0x2726d3ef' + padAddr(address) }, 'latest'] },
+    { jsonrpc: '2.0', id: 8, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0x9e2517d3' + padAddr(address) }, 'latest'] },
+    { jsonrpc: '2.0', id: 9, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0x715b208b' + padAddr(address) }, 'latest'] },
+    { jsonrpc: '2.0', id: 10, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0x9153b9e1' + padAddr(address) }, 'latest'] },
+    { jsonrpc: '2.0', id: 11, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0xeee2e346' + padAddr(address) }, 'latest'] },
+    { jsonrpc: '2.0', id: 12, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0x6f307dc3' + padAddr(address) }, 'latest'] },
+  ]
+  const mapResults = await batchCall(mapCalls)
   const zero = '0x' + '0'.repeat(64)
+  const mapHits = mapResults.filter((r: any) => r.result && r.result !== '0x' && r.result !== zero)
+    .map((r: any) => ({ id: r.id, result: r.result, asAddr: '0x' + r.result.slice(-40) }))
 
-  const selectorHits: any[] = []
-  Object.keys(selectors).forEach((name, i) => {
-    const r = results.find((x: any) => x.id === i)?.result
-    if (r && r !== '0x' && r !== zero) selectorHits.push({ name, result: r, asAddr: decodeAddr(r) })
+  return NextResponse.json({
+    mmLogs:     (mmLogs  ?? []).map((l: any) => ({ topic0: l.topics[0], topics: l.topics, data: l.data?.slice(0,66), tx: l.transactionHash })),
+    mmLogs2:    (mmLogs2 ?? []).map((l: any) => ({ topic0: l.topics[0], topics: l.topics, data: l.data?.slice(0,66), tx: l.transactionHash })),
+    cwmonLogs:  (cwmonLogs  ?? []).map((l: any) => ({ topic0: l.topics[0], topics: l.topics, data: l.data?.slice(0,66) })),
+    cwmonLogs2: (cwmonLogs2 ?? []).map((l: any) => ({ topic0: l.topics[0], topics: l.topics, data: l.data?.slice(0,66) })),
+    mapHits,
   })
-
-  const misc: any = {}
-  ;[100,101,102,103,104,105,106,107,108,109].forEach(id => {
-    const r = results.find((x: any) => x.id === id)?.result
-    const labels: Record<number,string> = {100:'cWMON.balanceOf(debtToken)',101:'debtToken.balanceOf(user)',102:'debtToken.balanceOf(self)',103:'debtToken.totalSupply',104:'debtToken.symbol',105:'cWMON.balanceOf(user)',106:'debtToken.owner',107:'debtToken.borrower',108:'debtToken.cToken',109:'debtToken.underlying'}
-    if (r && r !== '0x') misc[labels[id]] = r
-  })
-
-  return NextResponse.json({ selectorHits, misc })
 }
