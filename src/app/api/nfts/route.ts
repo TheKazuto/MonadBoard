@@ -123,18 +123,15 @@ async function fetchFloorPricesDebug(
           log.push(`B count=${items.length}`)
           if (items.length > 0) {
             const item = items[0]
-            // Log ALL top-level keys of the wrapper
             log.push(`B item_keys=${Object.keys(item).join(',')}`)
-            const asset = item?.asset ?? item
-            log.push(`B asset_keys=${Object.keys(asset).join(',')}`)
-            // Log each field that might have price/floor/market data
-            const interesting = ['listing','listings','market','marketData','price','floorPrice','floor','floorAsk','bestListing','lowestListing','sale','lastSale']
-            for (const k of interesting) {
-              if (asset[k] !== undefined) log.push(`B asset.${k}=${JSON.stringify(asset[k]).slice(0,300)}`)
-            }
-            // Extract floor if present
-            const listing = asset?.listing ?? asset?.bestListing ?? asset?.lowestListing
-            const floor = listing?.price ?? asset?.floorPrice ?? asset?.floor ?? asset?.price ?? 0
+            // floorAsk is at the wrapper level (item.floorAsk), NOT inside item.asset
+            const floorAsk = item?.floorAsk
+            log.push(`B floorAsk=${JSON.stringify(floorAsk)}`)
+            const floor =
+              floorAsk?.price?.amount?.native ??
+              floorAsk?.price ??
+              floorAsk?.amount ??
+              floorAsk?.priceAmount ?? 0
             log.push(`B floor=${floor}`)
             if (floor > 0) floorMap[contract] = Number(floor)
           }
