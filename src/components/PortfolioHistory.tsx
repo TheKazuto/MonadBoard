@@ -129,7 +129,7 @@ export default function PortfolioHistory() {
     return (
       <div className="card p-5">
         <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
-          Portfolio History
+          Token Portfolio History
         </h3>
         <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
           <div className="w-12 h-12 rounded-full bg-violet-50 flex items-center justify-center">
@@ -148,7 +148,7 @@ export default function PortfolioHistory() {
   if (error && !data[range]) {
     return (
       <div className="card p-5">
-        <h3 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>Portfolio History</h3>
+        <h3 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>Token Portfolio History</h3>
         <div className="flex flex-col items-center justify-center py-10 gap-3">
           <p className="text-sm text-red-400">Failed to load portfolio history</p>
           <button
@@ -172,7 +172,7 @@ export default function PortfolioHistory() {
     return (
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Portfolio History</h3>
+          <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Token Portfolio History</h3>
           <RangeSelector range={range} setRange={setRange} />
         </div>
         <div className="flex flex-col items-center justify-center h-48 gap-2 text-center">
@@ -188,7 +188,7 @@ export default function PortfolioHistory() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
-            Portfolio History
+            Token Portfolio History
           </h3>
           {current && (
             <div className={`flex items-center gap-1 mt-0.5 text-sm ${isPositive ? 'text-emerald-600' : 'text-red-500'}`}>
