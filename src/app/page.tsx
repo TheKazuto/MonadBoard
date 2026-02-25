@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import TopTokens from '@/components/TopTokens'
 import RecentActivity from '@/components/RecentActivity'
 import FearAndGreed from '@/components/FearAndGreed'
@@ -7,7 +8,6 @@ import TokenExposure from '@/components/TokenExposure'
 import PortfolioHistory from '@/components/PortfolioHistory'
 import { usePortfolio } from '@/contexts/PortfolioContext'
 import { useWallet }    from '@/contexts/WalletContext'
-import { mockDeFiPositions, formatCurrency } from '@/lib/mockData'
 import {
   RefreshCw, Wallet, Image,
   Zap, ChevronRight, Bell,
@@ -143,18 +143,56 @@ function WalletSummary() {
   )
 }
 
-// ─── DeFi Positions widget (dashboard mini preview) ───────────────────────────
+// ─── DeFi Positions widget (dashboard mini preview — top 3) ──────────────────
 function DeFiPositions() {
-  const { totals, status } = usePortfolio()
-  const { isConnected }   = useWallet()
+  const { address, isConnected } = useWallet()
+  const [positions, setPositions] = useState<any[]>([])
+  const [loading,   setLoading]   = useState(false)
+  const [total,     setTotal]     = useState(0)
 
-  // If connected and has DeFi data, show active protocols count
-  const hasDefi = isConnected && totals.defiNetValueUSD > 0
+  useEffect(() => {
+    if (!isConnected || !address) { setPositions([]); setTotal(0); return }
+
+    setLoading(true)
+    fetch(`/api/defi?address=${address}`)
+      .then(r => r.json())
+      .then(data => {
+        const all: any[] = data.positions ?? []
+
+        // Sort by netValueUSD descending, take top 3
+        const top3 = [...all]
+          .filter(p => (p.netValueUSD ?? 0) > 0)
+          .sort((a, b) => (b.netValueUSD ?? 0) - (a.netValueUSD ?? 0))
+          .slice(0, 3)
+
+        const totalDefi = all.reduce((s, p) => s + (p.netValueUSD ?? 0), 0)
+
+        setPositions(top3)
+        setTotal(totalDefi)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [address, isConnected])
+
+  // Type label formatter
+  function typeLabel(type: string) {
+    if (type === 'lending')   return 'Lending'
+    if (type === 'vault')     return 'Vault'
+    if (type === 'liquidity') return 'Liquidity'
+    return type
+  }
+
+  // APY from position — lending has supply[0].apy, vault has .apy, liquidity has .apy
+  function getApy(pos: any): number | null {
+    if (pos.apy != null && pos.apy > 0)         return pos.apy
+    if (pos.supply?.[0]?.apy != null)            return pos.supply[0].apy
+    return null
+  }
 
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-display font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
           DeFi Positions
         </h3>
         <a href="/defi" className="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-0.5">
@@ -162,51 +200,87 @@ function DeFiPositions() {
         </a>
       </div>
 
-      {/* If connected and has real DeFi data, show summary */}
-      {isConnected && hasDefi && (
-        <div className="mb-4 p-3 rounded-xl bg-violet-50 border border-violet-100">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs text-violet-500 mb-0.5">Total DeFi Value</p>
-              <p className="text-lg font-bold text-violet-800">{fmt(totals.defiNetValueUSD)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-xs text-violet-500 mb-0.5">Active protocols</p>
-              <p className="text-lg font-bold text-violet-800">{totals.defiActiveProtocols.length}</p>
-            </div>
+      {/* Not connected */}
+      {!isConnected && (
+        <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+          <div className="w-10 h-10 rounded-xl bg-violet-50 flex items-center justify-center">
+            <Zap size={18} className="text-violet-400" />
           </div>
-          {totals.defiActiveProtocols.length > 0 && (
-            <p className="text-xs text-violet-400 mt-2 truncate">
-              {totals.defiActiveProtocols.join(' · ')}
-            </p>
-          )}
+          <p className="text-sm text-gray-400">Connect your wallet to see DeFi positions</p>
         </div>
       )}
 
-      {/* Mock positions as preview / placeholder */}
-      <div className="space-y-4">
-        {mockDeFiPositions.map((pos) => (
-          <div key={pos.protocol} className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">{pos.logo}</span>
-                <div>
-                  <p className="text-sm font-semibold text-gray-800">{pos.protocol}</p>
-                  <p className="text-xs text-gray-400">{pos.type} · {pos.apy.toFixed(1)}% APY</p>
+      {/* Loading skeletons */}
+      {isConnected && loading && (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-gray-100 animate-pulse" />
+                  <div className="space-y-1">
+                    <div className="w-24 h-3 bg-gray-100 rounded animate-pulse" />
+                    <div className="w-16 h-2.5 bg-gray-50 rounded animate-pulse" />
+                  </div>
+                </div>
+                <div className="space-y-1 items-end flex flex-col">
+                  <div className="w-16 h-3 bg-gray-100 rounded animate-pulse" />
+                  <div className="w-12 h-2.5 bg-gray-50 rounded animate-pulse" />
                 </div>
               </div>
-              <div className="text-right">
-                <p className="text-sm font-bold text-gray-800">{formatCurrency(pos.value)}</p>
-                <p className="text-xs text-emerald-600 font-medium">+{pos.apy.toFixed(1)}% APY</p>
+              <div className="progress-bar"><div className="progress-fill animate-pulse" style={{ width: '60%' }} /></div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* No positions found */}
+      {isConnected && !loading && positions.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+          <p className="text-sm text-gray-400">No DeFi positions found</p>
+          <p className="text-xs text-gray-300">Your active positions will appear here</p>
+        </div>
+      )}
+
+      {/* Top 3 real positions */}
+      {isConnected && !loading && positions.length > 0 && (
+        <div className="space-y-4">
+          {positions.map((pos, i) => {
+            const value      = pos.netValueUSD ?? 0
+            const apy        = getApy(pos)
+            const percentage = total > 0 ? (value / total) * 100 : 0
+            const label      = pos.label ?? pos.asset ?? ''
+
+            return (
+              <div key={`${pos.protocol}-${i}`} className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xl">{pos.logo}</span>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-800">{pos.protocol}</p>
+                      <p className="text-xs text-gray-400">
+                        {typeLabel(pos.type)}
+                        {label ? ` · ${label}` : ''}
+                        {apy != null ? ` · ${apy.toFixed(1)}% APY` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-gray-800">{fmt(value)}</p>
+                    {apy != null && apy > 0 && (
+                      <p className="text-xs text-emerald-600 font-medium">+{apy.toFixed(1)}% APY</p>
+                    )}
+                  </div>
+                </div>
+                <div className="progress-bar">
+                  <div className="progress-fill" style={{ width: `${Math.min(percentage, 100)}%` }} />
+                </div>
+                <p className="text-xs text-gray-400 text-right">{percentage.toFixed(1)}% of DeFi</p>
               </div>
-            </div>
-            <div className="progress-bar">
-              <div className="progress-fill" style={{ width: `${pos.percentage}%` }} />
-            </div>
-            <p className="text-xs text-gray-400 text-right">{pos.percentage.toFixed(1)}% of DeFi</p>
-          </div>
-        ))}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
