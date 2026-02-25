@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useAccount } from 'wagmi'
+import { useWallet } from '@/contexts/WalletContext'
 import { RefreshCw, TrendingUp, TrendingDown, Zap, ExternalLink, AlertCircle } from 'lucide-react'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -373,7 +373,7 @@ const PROTOCOLS = [
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function DefiPage() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected } = useWallet()
   const [data, setData]         = useState<any>(null)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState<string | null>(null)
