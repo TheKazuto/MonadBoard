@@ -12,7 +12,7 @@ async function rpcBatch(calls: object[]): Promise<any[]> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(calls),
     cache: 'no-store',
-    signal: AbortSignal.timeout(10_000),
+    signal: AbortSignal.timeout(12_000),
   })
   const data = await res.json()
   return Array.isArray(data) ? data : [data]
@@ -34,89 +34,83 @@ function decodeString(hex: string): string {
 
 function resolveURI(uri: string): string {
   if (!uri) return ''
-  return uri.startsWith('ipfs://') ? uri.replace('ipfs://', 'https://ipfs.io/ipfs/') : uri
+  if (uri.startsWith('ipfs://')) return uri.replace('ipfs://', 'https://ipfs.io/ipfs/')
+  return uri
 }
 
-// ─── Step 1: discover NFTs via Etherscan V2 tokennfttx ────────────────────────
-// Returns map of contractAddress → Set<tokenId as bigint>
-async function discoverNFTs(address: string, apiKey: string): Promise<Map<string, Set<bigint>>> {
-  const url = `https://api.etherscan.io/v2/api?chainid=10143&module=account&action=tokennfttx&address=${address}&page=1&offset=100&sort=desc&apikey=${apiKey}`
-  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10_000) })
-  if (!res.ok) throw new Error(`Etherscan HTTP ${res.status}`)
+// ─── Etherscan V2 — Monad Mainnet chainid=143 ────────────────────────────────
+async function fetchEtherscanNFTs(address: string, apiKey: string) {
+  // Chain ID 143 = Monad Mainnet (10143 = Monad Testnet — WRONG!)
+  const url = `https://api.etherscan.io/v2/api?chainid=143&module=account&action=tokennfttx&address=${address}&page=1&offset=100&sort=desc&apikey=${apiKey}`
+  
+  console.log('[nfts] Fetching Etherscan tokennfttx chainid=143 for', address)
+  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(12_000) })
   const data = await res.json()
+  
+  console.log('[nfts] Etherscan response status:', data.status, 'message:', data.message, 'result count:', Array.isArray(data.result) ? data.result.length : data.result)
 
-  // status '0' with NOTX message = valid empty result
   if (data.status !== '1') {
-    if (data.message === 'No transactions found') return new Map()
-    throw new Error(`Etherscan: ${data.message}`)
+    // "No transactions found" is a valid empty result, not an error
+    if (typeof data.message === 'string' && data.message.includes('No transactions')) {
+      return []
+    }
+    throw new Error(`Etherscan: ${data.message} (status ${data.status})`)
   }
 
   const txs: any[] = data.result
-  const addrLower  = address.toLowerCase()
+  const addrLower = address.toLowerCase()
 
-  // Build a map of token → last known owner direction
-  // Use a map keyed by (contract, tokenId) → last tx (sorted desc = most recent first)
+  // For each unique (contract, tokenId), check if last transfer was TO the wallet
   const lastTx = new Map<string, any>()
   for (const tx of txs) {
     const key = `${tx.contractAddress.toLowerCase()}_${BigInt(tx.tokenID).toString()}`
-    if (!lastTx.has(key)) lastTx.set(key, tx) // first = most recent (sort=desc)
+    if (!lastTx.has(key)) lastTx.set(key, tx) // sort=desc → first = most recent
   }
 
-  // Keep only tokens where the most recent transfer was TO our address
-  const owned = new Map<string, Set<bigint>>()
+  const owned: { contract: string; tokenId: bigint }[] = []
   for (const [, tx] of lastTx) {
-    if (tx.to?.toLowerCase() !== addrLower) continue
-    const contract = tx.contractAddress.toLowerCase()
-    if (!owned.has(contract)) owned.set(contract, new Set())
-    owned.get(contract)!.add(BigInt(tx.tokenID))
-  }
-
-  return owned
-}
-
-// ─── Step 2: verify current ownership via ownerOf RPC ────────────────────────
-async function verifyOwnership(
-  candidates: Map<string, Set<bigint>>,
-  address: string
-): Promise<{ contract: string; tokenId: bigint }[]> {
-  const SEL_OWNER = '0x6352211e'
-  const checks: { contract: string; tokenId: bigint; call: object }[] = []
-
-  for (const [contract, ids] of candidates) {
-    for (const tokenId of ids) {
-      checks.push({
-        contract, tokenId,
-        call: {
-          jsonrpc: '2.0', method: 'eth_call',
-          params: [{ to: contract, data: SEL_OWNER + padUint256(tokenId) }, 'latest'],
-          id: checks.length,
-        },
-      })
+    if (tx.to?.toLowerCase() === addrLower) {
+      owned.push({ contract: tx.contractAddress.toLowerCase(), tokenId: BigInt(tx.tokenID) })
     }
   }
 
-  if (!checks.length) return []
+  console.log('[nfts] Etherscan owned after dedup:', owned.length)
+  return owned
+}
 
-  // Batch in chunks of 20 to be gentle with the RPC
+// ─── Verify current ownership via ownerOf (catches transfers not in Etherscan) ─
+async function verifyOwnership(candidates: { contract: string; tokenId: bigint }[], address: string) {
+  const SEL_OWNER = '0x6352211e'
+  
+  const calls = candidates.map((c, i) => ({
+    jsonrpc: '2.0', method: 'eth_call',
+    params: [{ to: c.contract, data: SEL_OWNER + padUint256(c.tokenId) }, 'latest'],
+    id: i,
+  }))
+
   const results: any[] = []
-  for (let i = 0; i < checks.length; i += 20) {
-    const chunk = await rpcBatch(checks.slice(i, i + 20).map(c => c.call))
+  // Batch in groups of 20
+  for (let i = 0; i < calls.length; i += 20) {
+    const chunk = await rpcBatch(calls.slice(i, i + 20))
     results.push(...chunk)
   }
 
   const addrLower = address.toLowerCase()
-  return checks.filter((c, i) => {
+  const verified = candidates.filter((_, i) => {
     const r = results[i]?.result
     return r && r.length >= 26 && ('0x' + r.slice(-40)).toLowerCase() === addrLower
-  }).map(c => ({ contract: c.contract, tokenId: c.tokenId }))
+  })
+
+  console.log('[nfts] Verified via ownerOf:', verified.length, '/', candidates.length)
+  return verified
 }
 
-// ─── Step 3: fetch name/symbol/tokenURI for each token ───────────────────────
+// ─── Fetch on-chain name/symbol/tokenURI ──────────────────────────────────────
 async function fetchOnChainMeta(owned: { contract: string; tokenId: bigint }[]) {
-  const SEL_NAME    = '0x06fdde03'
-  const SEL_SYMBOL  = '0x95d89b41'
-  const SEL_URI     = '0xc87b56dd'
-  const contracts   = [...new Set(owned.map(t => t.contract))]
+  const SEL_NAME   = '0x06fdde03'
+  const SEL_SYMBOL = '0x95d89b41'
+  const SEL_URI    = '0xc87b56dd'
+  const contracts  = [...new Set(owned.map(t => t.contract))]
 
   const [nameRes, symRes, uriRes] = await Promise.all([
     rpcBatch(contracts.map((a, i) => ({ jsonrpc:'2.0', method:'eth_call', params:[{to:a,data:SEL_NAME},'latest'], id:i }))),
@@ -126,14 +120,17 @@ async function fetchOnChainMeta(owned: { contract: string; tokenId: bigint }[]) 
 
   const cMeta: Record<string, { name: string; symbol: string }> = {}
   contracts.forEach((a, i) => {
-    cMeta[a] = { name: decodeString(nameRes[i]?.result ?? ''), symbol: decodeString(symRes[i]?.result ?? '') }
+    cMeta[a] = {
+      name:   decodeString(nameRes[i]?.result ?? ''),
+      symbol: decodeString(symRes[i]?.result ?? ''),
+    }
   })
 
   return { cMeta, uriRes }
 }
 
-// ─── Step 4: fetch token metadata JSON from tokenURI ─────────────────────────
-async function fetchTokenMetadata(uri: string): Promise<{ name?: string; image?: string } | null> {
+// ─── Fetch token JSON from tokenURI ───────────────────────────────────────────
+async function fetchTokenMeta(uri: string) {
   try {
     const url = resolveURI(uri)
     if (!url || url.startsWith('data:')) return null
@@ -141,44 +138,6 @@ async function fetchTokenMetadata(uri: string): Promise<{ name?: string; image?:
     if (!res.ok) return null
     return await res.json()
   } catch { return null }
-}
-
-// ─── Step 5: get floor price from Magic Eden page (no API key needed) ─────────
-// ME embeds collection data in the page's __NEXT_DATA__ JSON
-async function getMEFloorPrice(contractAddress: string): Promise<{ floorMON: number; floorUSD: number }> {
-  try {
-    // ME collection page for Monad — parses __NEXT_DATA__ which contains stats
-    const url = `https://magiceden.io/collections/monad/${contractAddress}`
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; MonadBoard/1.0)',
-        'Accept': 'text/html',
-      },
-      signal: AbortSignal.timeout(6_000),
-      cache: 'no-store',
-    })
-    if (!res.ok) return { floorMON: 0, floorUSD: 0 }
-
-    const html = await res.text()
-
-    // Extract __NEXT_DATA__ JSON
-    const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([^<]+)<\/script>/)
-    if (!match) return { floorMON: 0, floorUSD: 0 }
-
-    const nextData = JSON.parse(match[1])
-
-    // Navigate to collection stats — path varies but floorPrice is usually here
-    const props = nextData?.props?.pageProps
-    const stats  = props?.collection?.stats ?? props?.stats ?? props?.collectionStats ?? {}
-
-    // floorPrice is in lamports/wei equivalent — ME usually stores in native token units
-    const floorNative = stats?.floor_price ?? stats?.floorPrice ?? stats?.floor ?? 0
-    const floorUSD    = stats?.floor_price_usd ?? stats?.floorPriceUsd ?? 0
-
-    return { floorMON: Number(floorNative) || 0, floorUSD: Number(floorUSD) || 0 }
-  } catch {
-    return { floorMON: 0, floorUSD: 0 }
-  }
 }
 
 // ─── Main route ───────────────────────────────────────────────────────────────
@@ -190,73 +149,60 @@ export async function GET(req: NextRequest) {
 
   const apiKey = process.env.ETHERSCAN_API_KEY
   if (!apiKey) {
+    console.log('[nfts] No ETHERSCAN_API_KEY configured')
     return NextResponse.json({ error: 'no_api_key', nfts: [], nftValue: 0, total: 0 })
   }
 
   try {
-    // 1. Discover via Etherscan (fast, reliable)
-    const candidates = await discoverNFTs(address, apiKey)
+    // 1. Get NFT transfer history from Etherscan V2 (Monad mainnet chainid=143)
+    const candidates = await fetchEtherscanNFTs(address, apiKey)
 
-    if (candidates.size === 0) {
+    if (candidates.length === 0) {
       return NextResponse.json({ nfts: [], nftValue: 0, total: 0 })
     }
 
-    // 2. Verify current ownership on-chain
+    // 2. Verify current ownership on-chain via ownerOf
     const owned = await verifyOwnership(candidates, address)
 
     if (owned.length === 0) {
       return NextResponse.json({ nfts: [], nftValue: 0, total: 0 })
     }
 
-    // Cap at 20 for performance
-    const cap = owned.slice(0, 20)
+    const cap   = owned.slice(0, 20)
     const total = owned.length
 
-    // 3. Fetch on-chain metadata (name, symbol, tokenURI)
+    // 3. Fetch name/symbol/tokenURI from contracts
     const { cMeta, uriRes } = await fetchOnChainMeta(cap)
 
-    // 4. Fetch token JSON metadata + floor prices in parallel
-    const contracts = [...new Set(cap.map(t => t.contract))]
-    const [metaResults, floorResults] = await Promise.all([
-      // Token metadata from tokenURIs
-      Promise.all(cap.map(async ({ contract, tokenId }, i) => {
-        const rawUri = decodeString(uriRes[i]?.result ?? '')
-        return fetchTokenMetadata(rawUri)
-      })),
-      // Floor prices from Magic Eden pages
-      Promise.all(contracts.map(c => getMEFloorPrice(c))),
-    ])
+    // 4. Fetch token metadata JSONs in parallel
+    const metaResults = await Promise.all(
+      cap.map((_, i) => fetchTokenMeta(decodeString(uriRes[i]?.result ?? '')))
+    )
 
-    const floorMap: Record<string, { floorMON: number; floorUSD: number }> = {}
-    contracts.forEach((c, i) => { floorMap[c] = floorResults[i] })
-
-    // 5. Build final NFT list
+    // 5. Build response
     const nfts = cap.map(({ contract, tokenId }, i) => {
-      const cm      = cMeta[contract] ?? { name: 'Unknown', symbol: '?' }
-      const meta    = metaResults[i]
-      const floor   = floorMap[contract] ?? { floorMON: 0, floorUSD: 0 }
-      const rawUri  = decodeString(uriRes[i]?.result ?? '')
+      const cm    = cMeta[contract] ?? { name: '', symbol: '' }
+      const meta  = metaResults[i]
+      const collection = cm.name || cm.symbol || `${contract.slice(0, 6)}...${contract.slice(-4)}`
 
       return {
         id:           `${contract}_${tokenId}`,
         contract,
         tokenId:      tokenId.toString(),
-        collection:   cm.name || cm.symbol || contract.slice(0, 10) + '...',
+        collection,
         symbol:       cm.symbol,
-        name:         meta?.name ?? `${cm.name || cm.symbol} #${tokenId}`,
-        image:        meta?.image ? resolveURI(meta.image) : null,
-        floorMON:     floor.floorMON,
-        floorUSD:     floor.floorUSD,
+        name:         meta?.name ?? `${collection} #${tokenId}`,
+        image:        meta?.image ? resolveURI(String(meta.image)) : null,
+        floorMON:     0,
+        floorUSD:     0,
         magicEdenUrl: `https://magiceden.io/item-details/monad/${contract}/${tokenId}`,
       }
     })
 
-    const nftValue = nfts.reduce((s, n) => s + n.floorUSD, 0)
-
-    return NextResponse.json({ nfts, nftValue, total })
+    return NextResponse.json({ nfts, nftValue: 0, total })
 
   } catch (err: any) {
-    console.error('[nfts]', err?.message ?? err)
-    return NextResponse.json({ error: 'Failed to fetch NFTs' }, { status: 500 })
+    console.error('[nfts] error:', err?.message ?? err)
+    return NextResponse.json({ error: err?.message ?? 'Failed to fetch NFTs' }, { status: 500 })
   }
 }
