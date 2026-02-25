@@ -64,6 +64,7 @@ const COINGECKO_IDS: Record<string, string> = {
   sMON:   'monad',
   gMON:   'monad',
   shMON:  'monad',
+  aprMON: 'monad',
   WETH:   'ethereum',
   WBTC:   'wrapped-bitcoin',
   USDC:   'usd-coin',
@@ -583,43 +584,96 @@ async function fetchKuru(user: string): Promise<any[]> {
 }
 
 // ─── CURVANCE ─────────────────────────────────────────────────────────────────
-// High-LTV lending on Monad (up to 97.5%). API: https://api.curvance.com
+// ─── CURVANCE ────────────────────────────────────────────────────────────────
+// High-LTV lending on Monad (up to 97.5%). On-chain via cToken contracts.
+// cTokens confirmed from on-chain tx inspection:
+const CURVANCE_CTOKENS: Record<string, { underlying: string; decimals: number; market: string }> = {
+  // LST Markets — collateral cTokens
+  '0xD9E2025b907E95EcC963A5018f56B87575B4aB26': { underlying: 'aprMON', decimals: 18, market: 'aprMON/WMON' },
+  '0xF32B334042DC1EB9732454cc9bc1a06205d184f2': { underlying: 'WMON',   decimals: 18, market: 'aprMON/WMON' },
+  '0x926C101Cf0a3dE8725Eb24a93E980f9FE34d6230': { underlying: 'shMON',  decimals: 18, market: 'shMON/WMON'  },
+  '0x0fcEd51b526BfA5619F83d97b54a57e3327eB183': { underlying: 'WMON',   decimals: 18, market: 'shMON/WMON'  },
+  '0x494876051B0E85dCe5ecd5822B1aD39b9660c928': { underlying: 'sMON',   decimals: 18, market: 'sMON/WMON'   },
+  '0xebE45A6ceA7760a71D8e0fa5a0AE80a75320D708': { underlying: 'WMON',   decimals: 18, market: 'sMON/WMON'   },
+  // gMON market — discovered from on-chain tx 0x90e6e4fe...
+  '0x5ca6966543c0786f547446234492d2f11c82f11f': { underlying: 'gMON',   decimals: 18, market: 'gMON/WMON'   },
+}
+
 async function fetchCurvance(user: string): Promise<any[]> {
   try {
-    const res = await fetch(`https://api.curvance.com/v1/positions?address=${user}&chainId=143`,
-      { signal: AbortSignal.timeout(8_000), cache: 'no-store' })
-    if (!res.ok) return []
-    const data = await res.json()
-    const positions = data?.positions ?? data?.data ?? []
-    return positions
-      .filter((p: any) => {
-        const col = Number(p.totalCollateralUsd ?? p.collateralValue ?? 0)
-        const debt = Number(p.totalDebtUsd ?? p.debtValue ?? 0)
-        return col + debt > 0.01
-      })
-      .map((p: any) => {
-        const colUSD  = Number(p.totalCollateralUsd ?? p.collateralValue ?? 0)
-        const debtUSD = Number(p.totalDebtUsd ?? p.debtValue ?? 0)
-        const collaterals = (p.collaterals ?? p.collateralAssets ?? []).map((c: any) => ({
-          symbol: c.symbol ?? c.asset,
-          amountUSD: Number(c.valueUsd ?? c.value ?? 0),
-          apy: c.apy ? Number(c.apy) * 100 : 0,
-        }))
-        const debts = (p.debts ?? p.debtAssets ?? p.borrows ?? []).map((d: any) => ({
-          symbol: d.symbol ?? d.asset,
-          amountUSD: Number(d.valueUsd ?? d.value ?? 0),
-          apr: d.apr ? Number(d.apr) * 100 : 0,
-        }))
-        return {
-          protocol: 'Curvance', type: 'lending', logo: '💎',
-          url: 'https://monad.curvance.com', chain: 'Monad',
-          label: p.marketName ?? 'High-LTV Lending',
-          supply: collaterals, collateral: collaterals, borrow: debts,
-          totalCollateralUSD: colUSD, totalDebtUSD: debtUSD,
-          netValueUSD: colUSD - debtUSD,
-          healthFactor: p.healthFactor ? Number(p.healthFactor) : null,
-        }
-      })
+    const addrs = Object.keys(CURVANCE_CTOKENS)
+    // balanceOf(user) + borrowBalanceStored(user) + exchangeRateStored() per cToken
+    const calls = addrs.flatMap((addr, i) => [
+      ethCall(addr, balanceOfData(user),  i * 3),
+      ethCall(addr, '0x95dd9193' + user.slice(2).toLowerCase().padStart(64, '0'), i * 3 + 1), // borrowBalanceStored
+      ethCall(addr, '0x182df0f5', i * 3 + 2), // exchangeRateStored()
+    ])
+    const results = await rpcBatch(calls)
+
+    // Group by market — each market can have collateral + debt side
+    const markets: Record<string, { collateral: any[]; debt: any[] }> = {}
+    const allSymbols: string[] = []
+
+    addrs.forEach((addr, i) => {
+      const info     = CURVANCE_CTOKENS[addr]
+      const balRaw   = decodeUint(results.find((r: any) => r.id === i * 3)?.result ?? '0x')
+      const debtRaw  = decodeUint(results.find((r: any) => r.id === i * 3 + 1)?.result ?? '0x')
+      const exchRate = decodeUint(results.find((r: any) => r.id === i * 3 + 2)?.result ?? '0x')
+
+      if (balRaw === 0n && debtRaw === 0n) return
+
+      if (!markets[info.market]) markets[info.market] = { collateral: [], debt: [] }
+
+      // Compound-style: underlying = cTokenBalance * exchangeRate / 1e18
+      // exchangeRateStored is scaled at 1e18 (mantissa)
+      const amount = exchRate > 0n
+        ? Number(balRaw) * Number(exchRate) / 1e36
+        : Number(balRaw) / Math.pow(10, info.decimals)
+
+      const debtAmt = Number(debtRaw) / Math.pow(10, info.decimals)
+
+      if (balRaw > 0n) {
+        markets[info.market].collateral.push({ symbol: info.underlying, amount, amountUSD: 0 })
+        allSymbols.push(info.underlying)
+      }
+      if (debtRaw > 0n) {
+        markets[info.market].debt.push({ symbol: info.underlying, amount: debtAmt, amountUSD: 0 })
+        allSymbols.push(info.underlying)
+      }
+    })
+
+    if (!Object.keys(markets).length) return []
+
+    // Get prices for all tokens
+    const prices = await getTokenPricesUSD(allSymbols)
+
+    return Object.entries(markets).map(([marketName, { collateral, debt }]) => {
+      let totalCollateralUSD = 0
+      for (const c of collateral) {
+        c.amountUSD = c.amount * (prices[c.symbol] ?? 0)
+        totalCollateralUSD += c.amountUSD
+      }
+      let totalDebtUSD = 0
+      for (const d of debt) {
+        d.amountUSD = d.amount * (prices[d.symbol] ?? 0)
+        totalDebtUSD += d.amountUSD
+      }
+
+      // Curvance HF: collateral * liqThreshold / debt (use 0.975 — max LTV is 97.5%)
+      const healthFactor = totalDebtUSD > 0
+        ? (totalCollateralUSD * 0.975) / totalDebtUSD
+        : null
+
+      return {
+        protocol: 'Curvance', type: 'lending', logo: '💎',
+        url: 'https://monad.curvance.com', chain: 'Monad',
+        label: marketName,
+        supply: collateral, borrow: debt,
+        totalCollateralUSD, totalDebtUSD,
+        netValueUSD: totalCollateralUSD - totalDebtUSD,
+        healthFactor,
+      }
+    })
   } catch { return [] }
 }
 
