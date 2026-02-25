@@ -6,6 +6,7 @@ import RecentActivity from '@/components/RecentActivity'
 import FearAndGreed from '@/components/FearAndGreed'
 import TokenExposure from '@/components/TokenExposure'
 import PortfolioHistory from '@/components/PortfolioHistory'
+import { cachedFetch, getCached } from '@/lib/dataCache'
 import { usePortfolio } from '@/contexts/PortfolioContext'
 import { useWallet }    from '@/contexts/WalletContext'
 import { usePreferences } from '@/contexts/PreferencesContext'
@@ -157,7 +158,7 @@ function DeFiPositions() {
     if (!stableAddress) { setPositions([]); setTotal(0); return }
 
     setLoading(true)
-    fetch(`/api/defi?address=${stableAddress}`)
+    cachedFetch<any>('/api/defi', stableAddress)
       .then(r => r.json())
       .then(data => {
         const all: any[] = data.positions ?? []

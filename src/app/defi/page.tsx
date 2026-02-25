@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { cachedFetch, getCached } from '@/lib/dataCache'
 import { useWallet } from '@/contexts/WalletContext'
 import { RefreshCw, TrendingUp, TrendingDown, Zap, ExternalLink, AlertCircle } from 'lucide-react'
 
@@ -379,19 +380,21 @@ export default function DefiPage() {
   const [error, setError]       = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (!stableAddress) return
+    // Show cached data immediately if available
+    const cached = getCached<any>('/api/defi', stableAddress)
+    if (cached) { setData(cached); setLoading(false) }
+    if (cached && !force) return
     setLoading(true); setError(null)
     try {
-      const res = await fetch(`/api/defi?address=${stableAddress}`)
-      if (!res.ok) throw new Error('Failed to load positions')
-      const json = await res.json()
+      const json = await cachedFetch<any>('/api/defi', stableAddress, force)
       setData(json)
       setUpdatedAt(new Date())
     } catch (e: any) {
       setError(e.message ?? 'Unknown error')
     } finally { setLoading(false) }
-  }, [address])
+  }, [stableAddress])
 
   useEffect(() => { if (stableAddress) load() }, [stableAddress, load])
 

@@ -1,3 +1,4 @@
+import { cachedFetch } from '@/lib/dataCache'
 'use client'
 
 /**
@@ -136,9 +137,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
 
     const fetchTokens = async () => {
       try {
-        const res  = await fetch(`/api/token-exposure?address=${addr}`)
-        if (!res.ok) return
-        const data = await res.json()
+        const data = await cachedFetch<any>('/api/token-exposure', addr)
         if (loadingAddr.current !== key) return // stale
         tokenRef.current = Number(data.totalValue ?? 0)
         flush(addr)
@@ -148,9 +147,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
 
     const fetchNFTs = async () => {
       try {
-        const res  = await fetch(`/api/nfts?address=${addr}`)
-        if (!res.ok) return
-        const data = await res.json()
+        const data = await cachedFetch<any>('/api/nfts', addr)
         if (loadingAddr.current !== key) return
         nftRef.current = Number(data.nftValue ?? 0)
         flush(addr)
@@ -160,9 +157,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
 
     const fetchDefi = async () => {
       try {
-        const res  = await fetch(`/api/defi?address=${addr}`)
-        if (!res.ok) return
-        const data = await res.json()
+        const data = await cachedFetch<any>('/api/defi', addr)
         if (loadingAddr.current !== key) return
         const s    = data.summary ?? {}
         defiRef.current = {

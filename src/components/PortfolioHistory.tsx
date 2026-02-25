@@ -1,6 +1,7 @@
+import { cachedFetch, getCached } from '@/lib/dataCache'
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useWallet }      from '@/contexts/WalletContext'
 import { usePreferences } from '@/contexts/PreferencesContext'
 import {
@@ -80,7 +81,7 @@ function Skeleton() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PortfolioHistory() {
-  const { address, isConnected } = useWallet()
+  const { address, stableAddress, isConnected } = useWallet()
   const { defaultRange } = usePreferences()
   const [range, setRange] = useState<Range>(defaultRange)
   const [data, setData] = useState<Record<Range, ApiResponse | null>>({
@@ -92,12 +93,12 @@ export default function PortfolioHistory() {
   const [error, setError] = useState(false)
 
   async function fetchRange(r: Range) {
-    if (!address) return
+    if (!stableAddress) return
     const days = RANGES.find(x => x.key === r)!.days
     setLoading(prev => ({ ...prev, [r]: true }))
     setError(false)
     try {
-      const res = await fetch(`/api/portfolio-history?address=${address}&days=${days}`)
+      const res = await fetch(`/api/portfolio-history?address=${stableAddress}&days=${days}`)
       const json: ApiResponse = await res.json()
       if ((json as any).error) throw new Error((json as any).error)
       setData(prev => ({ ...prev, [r]: json }))
@@ -110,13 +111,13 @@ export default function PortfolioHistory() {
 
   // Fetch default range when wallet connects
   useEffect(() => {
-    if (isConnected && address) {
-      fetchRange('30d')
+    if (stableAddress) {
+      fetchRange("30d")
     } else {
       setData({ '7d': null, '30d': null, '90d': null, '1y': null })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, isConnected])
+  }, [stableAddress])
 
   // Fetch on range change (lazy — only if not already fetched)
   useEffect(() => {

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { cachedFetch, getCached } from '@/lib/dataCache'
 import { useWallet } from '@/contexts/WalletContext'
 import {
   Coins, Image as ImageIcon, RefreshCw, Wallet,
@@ -198,11 +199,13 @@ export default function PortfolioPage() {
 
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  const fetchTokens = useCallback(async (addr: string) => {
+  const fetchTokens = useCallback(async (addr: string, force = false) => {
+    const cached = getCached<any>('/api/token-exposure', addr)
+    if (cached) { setTokens(cached.tokens ?? []); setTokenValue(cached.totalValue ?? 0) }
+    if (cached && !force) return
     setTL(true); setTE(false)
     try {
-      const res  = await fetch(`/api/token-exposure?address=${addr}`)
-      const data = await res.json()
+      const data = await cachedFetch<any>('/api/token-exposure', addr, force)
       if (data.error) throw new Error(data.error)
       setTokens(data.tokens ?? [])
       setTokenValue(data.totalValue ?? 0)
@@ -211,11 +214,13 @@ export default function PortfolioPage() {
     finally { setTL(false) }
   }, [])
 
-  const fetchNFTs = useCallback(async (addr: string) => {
+  const fetchNFTs = useCallback(async (addr: string, force = false) => {
+    const cached = getCached<any>('/api/nfts', addr)
+    if (cached) { setNfts(cached.nfts ?? []); setNftTotal(cached.total ?? 0); setNftValue(cached.nftValue ?? 0) }
+    if (cached && !force) return
     setNL(true); setNE(false); setNftsNoKey(false)
     try {
-      const res  = await fetch(`/api/nfts?address=${addr}`)
-      const data = await res.json()
+      const data = await cachedFetch<any>('/api/nfts', addr, force)
       if (data.error === 'no_api_key') { setNftsNoKey(true); return }
       if (data.error) throw new Error(data.error)
       setNfts(data.nfts ?? [])

@@ -1,6 +1,7 @@
+import { cachedFetch, getCached } from '@/lib/dataCache'
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { RefreshCw, Wallet } from 'lucide-react'
@@ -46,18 +47,18 @@ function CustomTooltip({ active, payload }: any) {
 }
 
 export default function TokenExposure() {
-  const { address, isConnected } = useWallet()
+  const { address, stableAddress, isConnected } = useWallet()
   const [data, setData] = useState<ApiResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
   async function fetchTokens() {
-    if (!address) return
+    if (!stableAddress) return
     setLoading(true)
     setError(false)
     try {
-      const res = await fetch(`/api/token-exposure?address=${address}`)
+      const res = await fetch(`/api/token-exposure?address=${stableAddress}`)
       const json = await res.json()
       if (json.error) throw new Error(json.error)
       setData(json)
@@ -70,13 +71,13 @@ export default function TokenExposure() {
   }
 
   useEffect(() => {
-    if (isConnected && address) {
+    if (stableAddress) {
       fetchTokens()
     } else {
       setData(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, isConnected])
+  }, [stableAddress])
 
   // ── Not connected ────────────────────────────────────────────────────────────
   if (!isConnected) {
