@@ -108,7 +108,7 @@ async function fetchFloorPricesDebug(
   //    We use it only to confirm ownership, then fetch floor separately ──
   // (Already confirmed: asset structure has no floor_price field)
 
-  // ── B: v4 collection-assets (doc says "market info" included) ──
+  // ── B: v4 collection-assets — log full item (no truncation) ──
   for (const contract of contracts.filter(c => floorMap[c] === 0)) {
     try {
       const url = `https://api-mainnet.magiceden.dev/v4/evm-public/assets/collection-assets?chain=monad&collectionId=${contract}&limit=1`
@@ -119,10 +119,25 @@ async function fetchFloorPricesDebug(
       if (r.ok) {
         try {
           const body = JSON.parse(text)
-          log.push(`B keys=${Object.keys(body).join(',')}`)
-          const items: any[] = body?.assets ?? body?.data ?? body?.results ?? body?.items ?? []
+          const items: any[] = body?.assets ?? []
           log.push(`B count=${items.length}`)
-          if (items.length > 0) log.push(`B item0=${JSON.stringify(items[0]).slice(0, 600)}`)
+          if (items.length > 0) {
+            const item = items[0]
+            // Log ALL top-level keys of the wrapper
+            log.push(`B item_keys=${Object.keys(item).join(',')}`)
+            const asset = item?.asset ?? item
+            log.push(`B asset_keys=${Object.keys(asset).join(',')}`)
+            // Log each field that might have price/floor/market data
+            const interesting = ['listing','listings','market','marketData','price','floorPrice','floor','floorAsk','bestListing','lowestListing','sale','lastSale']
+            for (const k of interesting) {
+              if (asset[k] !== undefined) log.push(`B asset.${k}=${JSON.stringify(asset[k]).slice(0,300)}`)
+            }
+            // Extract floor if present
+            const listing = asset?.listing ?? asset?.bestListing ?? asset?.lowestListing
+            const floor = listing?.price ?? asset?.floorPrice ?? asset?.floor ?? asset?.price ?? 0
+            log.push(`B floor=${floor}`)
+            if (floor > 0) floorMap[contract] = Number(floor)
+          }
         } catch { log.push(`B parse_error body=${text.slice(0, 300)}`) }
       } else {
         log.push(`B error_body=${text.slice(0, 400)}`)
