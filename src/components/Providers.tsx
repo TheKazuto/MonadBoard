@@ -1,15 +1,19 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { ReactNode } from 'react'
-import { WalletContextProvider } from '@/contexts/WalletContext'
-import { PortfolioProvider }     from '@/contexts/PortfolioContext'
+
+// Load WalletProvider (wagmi/RainbowKit) client-side only
+// This prevents the useLayoutEffect SSR crash from RainbowKit
+const WalletProviderDynamic = dynamic(
+  () => import('@/components/WalletProvider').then(m => m.WalletProvider),
+  { ssr: false }
+)
 
 export default function Providers({ children }: { children: ReactNode }) {
   return (
-    <WalletContextProvider>
-      <PortfolioProvider>
-        {children}
-      </PortfolioProvider>
-    </WalletContextProvider>
+    <WalletProviderDynamic>
+      {children}
+    </WalletProviderDynamic>
   )
 }

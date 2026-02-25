@@ -1,18 +1,58 @@
 'use client'
 
-import { ReactNode } from 'react'
-import { WalletContextProvider } from '@/contexts/WalletContext'
-import { PortfolioProvider }     from '@/contexts/PortfolioContext'
-import { TransactionProvider }   from '@/contexts/TransactionContext'
+import { ReactNode, useState } from 'react'
+import { WagmiProvider } from 'wagmi'
+import { defineChain } from 'viem'
+import { RainbowKitProvider, getDefaultConfig, lightTheme } from '@rainbow-me/rainbowkit'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { TransactionProvider } from '@/contexts/TransactionContext'
+import { PortfolioProvider }   from '@/contexts/PortfolioContext'
+
+import '@rainbow-me/rainbowkit/styles.css'
+
+export const monadMainnet = defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: { name: 'Monad', symbol: 'MON', decimals: 18 },
+  rpcUrls: {
+    default: { http: ['https://rpc.monad.xyz'] },
+  },
+  blockExplorers: {
+    default: { name: 'MonadExplorer', url: 'https://monadexplorer.com' },
+  },
+})
+
+const wagmiConfig = getDefaultConfig({
+  appName: 'MonadBoard',
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'monadboard',
+  chains: [monadMainnet],
+  ssr: false, // Must be false — avoids useLayoutEffect SSR crash
+})
 
 export function WalletProvider({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: { queries: { staleTime: 60_000, retry: 1 } },
+  }))
+
   return (
-    <WalletContextProvider>
-      <PortfolioProvider>
-        <TransactionProvider>
-          {children}
-        </TransactionProvider>
-      </PortfolioProvider>
-    </WalletContextProvider>
+    <WagmiProvider config={wagmiConfig}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider
+          theme={lightTheme({
+            accentColor: '#836EF9',
+            accentColorForeground: 'white',
+            borderRadius: 'large',
+            fontStack: 'system',
+          })}
+          locale="en-US"
+        >
+          <PortfolioProvider>
+            <TransactionProvider>
+              {children}
+            </TransactionProvider>
+          </PortfolioProvider>
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
   )
 }
