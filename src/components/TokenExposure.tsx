@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useAccount } from 'wagmi'
+import { useWallet } from '@/contexts/WalletContext'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { RefreshCw, Wallet } from 'lucide-react'
 
@@ -46,7 +46,7 @@ function CustomTooltip({ active, payload }: any) {
 }
 
 export default function TokenExposure() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected } = useWallet()
   const [data, setData] = useState<ApiResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)

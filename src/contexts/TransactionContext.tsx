@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react'
-import { useAccount } from 'wagmi'
+import { useWallet } from '@/contexts/WalletContext'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface Transaction {
@@ -64,7 +64,7 @@ export function shortenAddr(addr: string): string {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 export function TransactionProvider({ children }: { children: ReactNode }) {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected } = useWallet()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [status, setStatus] = useState<TxStatus>('idle')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)

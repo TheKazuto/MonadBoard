@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useRef } from 'react'
-import { useAccount } from 'wagmi'
+import { useWallet } from '@/contexts/WalletContext'
 import {
   Search, RefreshCw, ArrowDownLeft, ArrowUpRight,
   ArrowLeftRight, Zap, Image, ExternalLink, Wallet,
@@ -103,7 +103,7 @@ function TxSkeleton() {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function TransactionsPage() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected } = useWallet()
   const { transactions, status, lastUpdated, refresh } = useTransactions()
 
   const [filter, setFilter] = useState<Filter>('All')
@@ -148,7 +148,7 @@ export default function TransactionsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>Transactions</h1>
-          <p className="text-gray-500 text-sm mt-1">History and wallet monitoring</p>
+          <p className="text-gray-500 text-sm mt-1">Full history and wallet monitoring</p>
         </div>
         {isConnected && lastUpdated && (
           <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -204,13 +204,13 @@ export default function TransactionsPage() {
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-700 transition-colors font-medium"
                   >
-                    See everything on MonadScan
+                    Ver tudo no MonadScan
                     <ExternalLink size={11} />
                   </a>
                 )}
                 <span className="text-xs text-gray-400">
                   {(status === 'success' || transactions.length > 0)
-                    ? `${filtered.length} transaç${filtered.length !== 1 ? 'ões' : 'ão'}`
+                    ? `${filtered.length} transaction${filtered.length !== 1 ? 's' : ''}`
                     : '—'
                   }
                 </span>

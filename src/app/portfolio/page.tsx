@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useAccount } from 'wagmi'
+import { useWallet } from '@/contexts/WalletContext'
 import {
   Coins, Image as ImageIcon, RefreshCw, Wallet,
   ExternalLink, LayoutGrid, List, TrendingUp, TrendingDown,
@@ -181,7 +181,7 @@ function NFTListRow({ nft }: { nft: NFT }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function PortfolioPage() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected } = useWallet()
 
   const [tokens, setTokens]         = useState<Token[]>([])
   const [tokenValue, setTokenValue] = useState(0)

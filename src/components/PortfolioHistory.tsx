@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useAccount } from 'wagmi'
+import { useWallet } from '@/contexts/WalletContext'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
@@ -79,7 +79,7 @@ function Skeleton() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function PortfolioHistory() {
-  const { address, isConnected } = useAccount()
+  const { address, isConnected } = useWallet()
   const [range, setRange] = useState<Range>('30d')
   const [data, setData] = useState<Record<Range, ApiResponse | null>>({
     '7d': null, '30d': null, '90d': null, '1y': null,
