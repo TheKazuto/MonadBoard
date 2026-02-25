@@ -5,11 +5,11 @@ import BottomBar from '@/components/BottomBar'
 import Providers from '@/components/Providers'
 
 export const metadata: Metadata = {
-  title: 'MonadBoard — Your Monad Portfolio Dashboard',
+  title: 'MonBoard — Your Monad Portfolio Dashboard',
   description: 'The ultimate dashboard for Monad ecosystem. Track your portfolio, DeFi positions, NFTs and get real-time alerts.',
   keywords: ['monad', 'blockchain', 'portfolio', 'defi', 'nft', 'dashboard'],
   openGraph: {
-    title: 'MonadBoard',
+    title: 'MonBoard',
     description: 'Your Monad Portfolio Dashboard',
     type: 'website',
   },

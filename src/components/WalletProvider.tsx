@@ -25,8 +25,8 @@ export const monadMainnet = defineChain({
 })
 
 const wagmiConfig = getDefaultConfig({
-  appName: 'MonadBoard',
-  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'monadboard',
+  appName: 'MonBoard',
+  projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'monboard',
   chains: [monadMainnet],
   ssr: false,
 })

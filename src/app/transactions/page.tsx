@@ -333,7 +333,7 @@ export default function TransactionsPage() {
                 </div>
                 <h3 className="font-bold text-gray-800 mb-1" style={{ fontFamily: 'Sora, sans-serif' }}>Premium Feature</h3>
                 <p className="text-sm text-gray-500 mb-4">
-                  Hold a <strong className="text-violet-700">MonadBoard NFT</strong> to monitor wallets and receive Telegram alerts.
+                  Hold a <strong className="text-violet-700">MonBoard NFT</strong> to monitor wallets and receive Telegram alerts.
                 </p>
                 <button className="btn-primary text-sm px-5 py-2">Get Your NFT</button>
                 <p className="text-xs text-gray-400 mt-2">Collection launching soon</p>
@@ -384,7 +384,7 @@ export default function TransactionsPage() {
               </svg>
               Connect Telegram Bot
             </button>
-            <p className="text-xs text-gray-400 mt-2 text-center">@MonadBoardBot</p>
+            <p className="text-xs text-gray-400 mt-2 text-center">@MonBoardBot</p>
           </div>
         </div>
       </div>

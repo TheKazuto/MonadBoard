@@ -100,13 +100,13 @@ export default function AccountPage() {
           </div>
           <div className="flex-1">
             <h3 className="font-display font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
-              {hasNFT ? '✅ Premium Access Unlocked' : 'MonadBoard NFT Access'}
+              {hasNFT ? '✅ Premium Access Unlocked' : 'MonBoard NFT Access'}
             </h3>
             {hasNFT ? (
-              <p className="text-sm text-emerald-700 mt-1">You hold a MonadBoard NFT and have access to all premium features including Telegram alerts and wallet monitoring.</p>
+              <p className="text-sm text-emerald-700 mt-1">You hold a MonBoard NFT and have access to all premium features including Telegram alerts and wallet monitoring.</p>
             ) : (
               <>
-                <p className="text-sm text-gray-500 mt-1 mb-3">Hold a MonadBoard NFT to unlock premium features:</p>
+                <p className="text-sm text-gray-500 mt-1 mb-3">Hold a MonBoard NFT to unlock premium features:</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
                   {[
                     { icon: '🔔', text: 'Real-time Telegram alerts' },
@@ -121,7 +121,7 @@ export default function AccountPage() {
                   ))}
                 </div>
                 <button className="btn-primary text-sm px-5">
-                  Get MonadBoard NFT — Coming Soon
+                  Get MonBoard NFT — Coming Soon
                 </button>
               </>
             )}
@@ -204,9 +204,9 @@ export default function AccountPage() {
 
       {/* About */}
       <div className="card p-5">
-        <h2 className="font-display font-semibold text-gray-800 mb-3" style={{ fontFamily: 'Sora, sans-serif' }}>About MonadBoard</h2>
+        <h2 className="font-display font-semibold text-gray-800 mb-3" style={{ fontFamily: 'Sora, sans-serif' }}>About MonBoard</h2>
         <p className="text-sm text-gray-500 mb-3">
-          MonadBoard is the premier portfolio dashboard for the Monad ecosystem. Track your assets, DeFi positions, and NFTs in one place.
+          MonBoard is the premier portfolio dashboard for the Monad ecosystem. Track your assets, DeFi positions, and NFTs in one place.
         </p>
         <div className="flex flex-wrap gap-2">
           {[
