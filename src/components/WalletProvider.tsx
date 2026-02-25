@@ -5,8 +5,9 @@ import { WagmiProvider } from 'wagmi'
 import { defineChain } from 'viem'
 import { RainbowKitProvider, getDefaultConfig, lightTheme } from '@rainbow-me/rainbowkit'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { TransactionProvider } from '@/contexts/TransactionContext'
-import { PortfolioProvider }   from '@/contexts/PortfolioContext'
+import { WalletContextProvider } from '@/contexts/WalletContext'
+import { PortfolioProvider }     from '@/contexts/PortfolioContext'
+import { TransactionProvider }   from '@/contexts/TransactionContext'
 
 import '@rainbow-me/rainbowkit/styles.css'
 
@@ -26,7 +27,7 @@ const wagmiConfig = getDefaultConfig({
   appName: 'MonadBoard',
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'monadboard',
   chains: [monadMainnet],
-  ssr: false, // Must be false — avoids useLayoutEffect SSR crash
+  ssr: false,
 })
 
 export function WalletProvider({ children }: { children: ReactNode }) {
@@ -46,11 +47,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           })}
           locale="en-US"
         >
-          <PortfolioProvider>
-            <TransactionProvider>
-              {children}
-            </TransactionProvider>
-          </PortfolioProvider>
+          {/* WalletContextProvider must be INSIDE WagmiProvider so useAccount() works */}
+          <WalletContextProvider>
+            <PortfolioProvider>
+              <TransactionProvider>
+                {children}
+              </TransactionProvider>
+            </PortfolioProvider>
+          </WalletContextProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
