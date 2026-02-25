@@ -140,6 +140,51 @@ async function fetchTokenMeta(uri: string) {
   } catch { return null }
 }
 
+// ─── Fetch floor price from Magic Eden (tries multiple chain slugs) ───────────
+// ME uses Reservoir under the hood; chain slug for Monad mainnet may vary
+const ME_SLUGS = ['monad', 'monad-mainnet']
+
+async function fetchFloorPrice(contract: string, meKey?: string): Promise<{ floorMON: number; floorUSD: number }> {
+  const headers: Record<string, string> = { accept: 'application/json' }
+  if (meKey) headers['Authorization'] = `Bearer ${meKey}`
+
+  for (const slug of ME_SLUGS) {
+    try {
+      const url = `https://api-mainnet.magiceden.dev/v3/rtp/${slug}/collections/v7?id=${contract}&limit=1`
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(6_000), cache: 'no-store' })
+      if (!res.ok) continue
+      const data = await res.json()
+      const col  = data?.collections?.[0]
+      if (!col) continue
+      const floorMON = col?.floorAsk?.price?.amount?.native  ?? 0
+      const floorUSD = col?.floorAsk?.price?.amount?.usd     ?? 0
+      if (floorMON > 0 || floorUSD > 0) {
+        console.log(`[nfts] floor for ${contract} via slug=${slug}: ${floorMON} MON / $${floorUSD}`)
+        return { floorMON, floorUSD }
+      }
+    } catch { /* try next slug */ }
+  }
+
+  // Fallback: try Reservoir API directly (powers ME under the hood)
+  try {
+    const url = `https://api.reservoir.tools/collections/v7?id=${contract}&limit=1`
+    const res = await fetch(url, { signal: AbortSignal.timeout(6_000), cache: 'no-store' })
+    if (res.ok) {
+      const data = await res.json()
+      const col  = data?.collections?.[0]
+      const floorMON = col?.floorAsk?.price?.amount?.native ?? 0
+      const floorUSD = col?.floorAsk?.price?.amount?.usd    ?? 0
+      if (floorMON > 0 || floorUSD > 0) {
+        console.log(`[nfts] floor for ${contract} via Reservoir: ${floorMON} / $${floorUSD}`)
+        return { floorMON, floorUSD }
+      }
+    }
+  } catch { /* ignore */ }
+
+  console.log(`[nfts] no floor price found for ${contract}`)
+  return { floorMON: 0, floorUSD: 0 }
+}
+
 // ─── Main route ───────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')
@@ -174,16 +219,28 @@ export async function GET(req: NextRequest) {
     // 3. Fetch name/symbol/tokenURI from contracts
     const { cMeta, uriRes } = await fetchOnChainMeta(cap)
 
-    // 4. Fetch token metadata JSONs in parallel
-    const metaResults = await Promise.all(
-      cap.map((_, i) => fetchTokenMeta(decodeString(uriRes[i]?.result ?? '')))
-    )
+    const contracts = [...new Set(cap.map(t => t.contract))]
+    const meKey     = process.env.MAGIC_EDEN_API_KEY
+
+    // 4. Fetch token metadata + floor prices + MON price in parallel
+    const [metaResults, floorResults, monPrice] = await Promise.all([
+      Promise.all(cap.map((_, i) => fetchTokenMeta(decodeString(uriRes[i]?.result ?? '')))),
+      Promise.all(contracts.map(c => fetchFloorPrice(c, meKey))),
+      fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd', { next: { revalidate: 60 } })
+        .then(r => r.json()).then(d => (d?.monad?.usd ?? 0) as number).catch(() => 0),
+    ])
+
+    const floorMap: Record<string, { floorMON: number; floorUSD: number }> = {}
+    contracts.forEach((c, i) => { floorMap[c] = floorResults[i] })
 
     // 5. Build response
     const nfts = cap.map(({ contract, tokenId }, i) => {
-      const cm    = cMeta[contract] ?? { name: '', symbol: '' }
-      const meta  = metaResults[i]
+      const cm         = cMeta[contract] ?? { name: '', symbol: '' }
+      const meta       = metaResults[i]
+      const floor      = floorMap[contract] ?? { floorMON: 0, floorUSD: 0 }
       const collection = cm.name || cm.symbol || `${contract.slice(0, 6)}...${contract.slice(-4)}`
+      // If ME gave floorMON but no USD, compute from MON price
+      const floorUSD   = floor.floorUSD > 0 ? floor.floorUSD : floor.floorMON * monPrice
 
       return {
         id:           `${contract}_${tokenId}`,
@@ -193,13 +250,14 @@ export async function GET(req: NextRequest) {
         symbol:       cm.symbol,
         name:         meta?.name ?? `${collection} #${tokenId}`,
         image:        meta?.image ? resolveURI(String(meta.image)) : null,
-        floorMON:     0,
-        floorUSD:     0,
+        floorMON:     floor.floorMON,
+        floorUSD,
         magicEdenUrl: `https://magiceden.io/item-details/monad/${contract}/${tokenId}`,
       }
     })
 
-    return NextResponse.json({ nfts, nftValue: 0, total })
+    const nftValue = nfts.reduce((s, n) => s + n.floorUSD, 0)
+    return NextResponse.json({ nfts, nftValue, total })
 
   } catch (err: any) {
     console.error('[nfts] error:', err?.message ?? err)
