@@ -104,9 +104,9 @@ async function fetchFloorPricesDebug(
   contracts.forEach(c => { floorMap[c] = 0 })
   const log: string[] = []
 
-  // ── A: v4 user-assets ──
+  // ── A: v4 user-assets (chain_id must be string "monad") ──
   try {
-    const url = `https://api-mainnet.magiceden.dev/v4/evm-public/assets/user-assets?chain_id=${MONAD_CHAIN_ID}&wallet_address=${address}&limit=100`
+    const url = `https://api-mainnet.magiceden.dev/v4/evm-public/assets/user-assets?chain_id=monad&wallet_address=${address}&limit=100`
     log.push(`A GET ${url}`)
     const r = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8_000), cache: 'no-store' })
     log.push(`A status=${r.status}`)
@@ -115,7 +115,7 @@ async function fetchFloorPricesDebug(
       log.push(`A keys=${Object.keys(body).join(',')}`)
       const assets: any[] = body?.assets ?? body?.data ?? body?.results ?? body?.items ?? []
       log.push(`A assets_count=${assets.length}`)
-      if (assets.length > 0) log.push(`A sample_keys=${Object.keys(assets[0]).slice(0, 10).join(',')}`)
+      if (assets.length > 0) log.push(`A sample_keys=${Object.keys(assets[0]).slice(0, 12).join(',')}`)
       for (const asset of assets) {
         const c = (asset?.contract_address ?? asset?.contractAddress ?? asset?.collection?.contract_address ?? '').toLowerCase()
         if (contracts.includes(c)) {
@@ -126,55 +126,91 @@ async function fetchFloorPricesDebug(
       }
     } else {
       const text = await r.text().catch(() => '')
-      log.push(`A error_body=${text.slice(0, 200)}`)
+      log.push(`A error_body=${text.slice(0, 400)}`)
     }
   } catch (e: any) { log.push(`A exception=${e.message}`) }
 
-  // ── B: v4 collections/search per contract ──
+  // ── B: v4 collections GET ──
   for (const contract of contracts.filter(c => floorMap[c] === 0)) {
     try {
-      const url = `https://api-mainnet.magiceden.dev/v4/evm-public/collections/search?chain_id=${MONAD_CHAIN_ID}&contract_address=${contract}&limit=1`
+      const url = `https://api-mainnet.magiceden.dev/v4/evm-public/collections?chain_id=monad&contract_address=${contract}&limit=1`
       log.push(`B GET ${url}`)
       const r = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(6_000), cache: 'no-store' })
       log.push(`B status=${r.status}`)
+      const text = await r.text().catch(() => '')
       if (r.ok) {
-        const body = await r.json()
-        log.push(`B keys=${Object.keys(body).join(',')}`)
-        const items: any[] = body?.collections ?? body?.data ?? body?.results ?? body?.items ?? []
-        log.push(`B items_count=${items.length}`)
-        if (items.length > 0) log.push(`B item0_keys=${Object.keys(items[0]).slice(0, 15).join(',')}`)
-        const col = items[0]
-        const floor = col?.floor_price ?? col?.floorPrice ?? col?.stats?.floor_price ?? col?.stats?.floorPrice ?? 0
-        log.push(`B floor=${floor}`)
-        if (floor > 0) floorMap[contract] = Number(floor)
+        try {
+          const body = JSON.parse(text)
+          log.push(`B keys=${Object.keys(body).join(',')}`)
+          const items: any[] = body?.collections ?? body?.data ?? body?.results ?? body?.items ?? []
+          log.push(`B items_count=${items.length}`)
+          if (items.length > 0) log.push(`B item0_keys=${Object.keys(items[0]).slice(0, 15).join(',')}`)
+          const col = items[0]
+          const floor = col?.floor_price ?? col?.floorPrice ?? col?.stats?.floor_price ?? col?.stats?.floorPrice ?? 0
+          log.push(`B floor=${floor}`)
+          if (floor > 0) floorMap[contract] = Number(floor)
+        } catch { log.push(`B parse_error body=${text.slice(0, 200)}`) }
       } else {
-        const text = await r.text().catch(() => '')
-        log.push(`B error_body=${text.slice(0, 200)}`)
+        log.push(`B error_body=${text.slice(0, 400)}`)
       }
     } catch (e: any) { log.push(`B exception=${e.message}`) }
   }
 
-  // ── C: v3/rtp/monad ──
+  // ── C: v4 collections POST ──
+  for (const contract of contracts.filter(c => floorMap[c] === 0)) {
+    try {
+      const url = `https://api-mainnet.magiceden.dev/v4/evm-public/collections`
+      log.push(`C POST ${url} body={chain_id:monad,contract_addresses:[${contract}]}`)
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { accept: 'application/json', 'content-type': 'application/json' },
+        body: JSON.stringify({ chain_id: 'monad', contract_addresses: [contract] }),
+        signal: AbortSignal.timeout(6_000),
+        cache: 'no-store',
+      })
+      log.push(`C status=${r.status}`)
+      const text = await r.text().catch(() => '')
+      if (r.ok) {
+        try {
+          const body = JSON.parse(text)
+          log.push(`C keys=${Object.keys(body).join(',')}`)
+          const items: any[] = body?.collections ?? body?.data ?? body?.results ?? body?.items ?? []
+          log.push(`C items_count=${items.length}`)
+          if (items.length > 0) log.push(`C item0_keys=${Object.keys(items[0]).slice(0, 15).join(',')}`)
+          const col = items[0]
+          const floor = col?.floor_price ?? col?.floorPrice ?? col?.stats?.floor_price ?? col?.stats?.floorPrice ?? 0
+          log.push(`C floor=${floor}`)
+          if (floor > 0) floorMap[contract] = Number(floor)
+        } catch { log.push(`C parse_error body=${text.slice(0, 200)}`) }
+      } else {
+        log.push(`C error_body=${text.slice(0, 400)}`)
+      }
+    } catch (e: any) { log.push(`C exception=${e.message}`) }
+  }
+
+  // ── D: v3/rtp/monad (requires API key) ──
   for (const contract of contracts.filter(c => floorMap[c] === 0)) {
     const meKey = process.env.MAGIC_EDEN_API_KEY
     try {
       const url = `https://api-mainnet.magiceden.dev/v3/rtp/monad/collections/v7?id=${contract}&limit=1`
-      log.push(`C GET ${url}`)
+      log.push(`D GET ${url} (hasKey=${!!meKey})`)
       const headers: Record<string,string> = { accept: 'application/json' }
       if (meKey) headers['Authorization'] = `Bearer ${meKey}`
       const r = await fetch(url, { headers, signal: AbortSignal.timeout(6_000), cache: 'no-store' })
-      log.push(`C status=${r.status}`)
+      log.push(`D status=${r.status}`)
+      const text = await r.text().catch(() => '')
       if (r.ok) {
-        const body = await r.json()
-        const col  = body?.collections?.[0]
-        log.push(`C col=${col?.name ?? 'null'} floor=${col?.floorAsk?.price?.amount?.native ?? 0}`)
-        const floor = col?.floorAsk?.price?.amount?.native ?? 0
-        if (floor > 0) floorMap[contract] = Number(floor)
+        try {
+          const body = JSON.parse(text)
+          const col  = body?.collections?.[0]
+          log.push(`D col=${col?.name ?? 'null'} floor=${col?.floorAsk?.price?.amount?.native ?? 0}`)
+          const floor = col?.floorAsk?.price?.amount?.native ?? 0
+          if (floor > 0) floorMap[contract] = Number(floor)
+        } catch { log.push(`D parse_error`) }
       } else {
-        const text = await r.text().catch(() => '')
-        log.push(`C error_body=${text.slice(0, 200)}`)
+        log.push(`D error_body=${text.slice(0, 400)}`)
       }
-    } catch (e: any) { log.push(`C exception=${e.message}`) }
+    } catch (e: any) { log.push(`D exception=${e.message}`) }
   }
 
   return { floorMap, log }
