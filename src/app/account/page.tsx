@@ -1,17 +1,40 @@
 'use client'
 
 import { useState } from 'react'
-import { mockWalletData, mockNFTs, formatCurrency, shortenAddress } from '@/lib/mockData'
+import { useWallet }   from '@/contexts/WalletContext'
+import { usePortfolio } from '@/contexts/PortfolioContext'
 import { User, Copy, ExternalLink, Shield, Bell, Wallet, CheckCircle, Lock } from 'lucide-react'
+
+function fmt(v: number) {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
+  if (v >= 1_000)     return `$${(v / 1_000).toFixed(2)}K`
+  if (v >= 1)         return `$${v.toFixed(2)}`
+  if (v > 0)          return `$${v.toFixed(4)}`
+  return '$0.00'
+}
+
+function shortenAddress(addr: string) {
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+}
 
 export default function AccountPage() {
   const [copied, setCopied] = useState(false)
-  const hasNFT = false // Toggle to true when user holds NFT
+  const hasNFT = false
+
+  const { address, isConnected, disconnect } = useWallet()
+  const { totals, status } = usePortfolio()
+
+  const isLoading = status === 'loading'
 
   const handleCopy = () => {
-    navigator.clipboard.writeText('0x742d35cc6634c0532925a3b844bc454e4438f44e')
+    if (!address) return
+    navigator.clipboard.writeText(address)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleDisconnect = () => {
+    disconnect()
   }
 
   return (
@@ -40,16 +63,36 @@ export default function AccountPage() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
-              <p className="text-violet-200 text-sm font-mono">0x742d35cc...f44e</p>
-              <button onClick={handleCopy} className="text-violet-200 hover:text-white transition-colors">
-                {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
-              </button>
-              <a href="https://monad.xyz/address/0x742d..." target="_blank" rel="noopener noreferrer" className="text-violet-200 hover:text-white transition-colors">
-                <ExternalLink size={14} />
-              </a>
-            </div>
-            <p className="text-violet-200 text-sm mt-2">Portfolio: <span className="text-white font-bold">{formatCurrency(mockWalletData.totalValueUSD)}</span></p>
+
+            {isConnected && address ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <p className="text-violet-200 text-sm font-mono">{shortenAddress(address)}</p>
+                  <button onClick={handleCopy} className="text-violet-200 hover:text-white transition-colors" title="Copy address">
+                    {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
+                  </button>
+                  <a
+                    href={`https://monadexplorer.com/address/${address}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-violet-200 hover:text-white transition-colors"
+                    title="View on explorer"
+                  >
+                    <ExternalLink size={14} />
+                  </a>
+                </div>
+                <p className="text-violet-200 text-sm mt-2">
+                  Portfolio:{' '}
+                  {isLoading ? (
+                    <span className="inline-block w-20 h-4 bg-white/20 rounded animate-pulse align-middle" />
+                  ) : (
+                    <span className="text-white font-bold">{fmt(totals.totalValueUSD)}</span>
+                  )}
+                </p>
+              </>
+            ) : (
+              <p className="text-violet-300 text-sm mt-1">No wallet connected</p>
+            )}
           </div>
         </div>
       </div>
@@ -135,9 +178,14 @@ export default function AccountPage() {
       </div>
 
       {/* Disconnect */}
-      <button className="w-full py-3 rounded-xl border-2 border-red-100 text-red-500 text-sm font-medium hover:bg-red-50 transition-colors">
-        Disconnect Wallet
-      </button>
+      {isConnected && (
+        <button
+          onClick={handleDisconnect}
+          className="w-full py-3 rounded-xl border-2 border-red-100 text-red-500 text-sm font-medium hover:bg-red-50 transition-colors"
+        >
+          Disconnect Wallet
+        </button>
+      )}
     </div>
   )
 }
