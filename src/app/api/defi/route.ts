@@ -583,50 +583,66 @@ async function fetchKuru(user: string): Promise<any[]> {
   } catch { return [] }
 }
 
-// ─── CURVANCE ─────────────────────────────────────────────────────────────────
-// ─── CURVANCE ────────────────────────────────────────────────────────────────
-// High-LTV lending on Monad (up to 97.5%). On-chain via cToken contracts.
-// cTokens confirmed from on-chain tx inspection:
+// ─── CURVANCE ─────────────────────────────────────────────────────────────────────────────
+// High-LTV lending on Monad. On-chain via cToken contracts.
+// Collateral: cgXXX tokens, balanceOf(user) = deposited amount 1:1
+// Debt: selector 0x21570256(user) returns 6x32-byte snapshot, word[5] = borrowAmount
+// Confirmed from borrow tx 0x8f98c1...: returns 674.325 WMON for test user
+
 const CURVANCE_CTOKENS: Record<string, { underlying: string; decimals: number; market: string }> = {
-  // LST Markets — collateral cTokens
   '0xD9E2025b907E95EcC963A5018f56B87575B4aB26': { underlying: 'aprMON', decimals: 18, market: 'aprMON/WMON' },
-  '0xF32B334042DC1EB9732454cc9bc1a06205d184f2': { underlying: 'WMON',   decimals: 18, market: 'aprMON/WMON' },
   '0x926C101Cf0a3dE8725Eb24a93E980f9FE34d6230': { underlying: 'shMON',  decimals: 18, market: 'shMON/WMON'  },
-  '0x0fcEd51b526BfA5619F83d97b54a57e3327eB183': { underlying: 'WMON',   decimals: 18, market: 'shMON/WMON'  },
   '0x494876051B0E85dCe5ecd5822B1aD39b9660c928': { underlying: 'sMON',   decimals: 18, market: 'sMON/WMON'   },
-  '0xebE45A6ceA7760a71D8e0fa5a0AE80a75320D708': { underlying: 'WMON',   decimals: 18, market: 'sMON/WMON'   },
-  // gMON market — discovered from on-chain tx 0x90e6e4fe...
   '0x5ca6966543c0786f547446234492d2f11c82f11f': { underlying: 'gMON',   decimals: 18, market: 'gMON/WMON'   },
+}
+
+const CURVANCE_DEBT_CTOKENS: Record<string, { underlying: string; decimals: number; market: string }> = {
+  '0xf473568b26b8c5aadca9fbc0ea17e1728d5ec925': { underlying: 'WMON', decimals: 18, market: 'gMON/WMON'   },
+  '0xF32B334042DC1EB9732454cc9bc1a06205d184f2': { underlying: 'WMON', decimals: 18, market: 'aprMON/WMON' },
+  '0x0fcEd51b526BfA5619F83d97b54a57e3327eB183': { underlying: 'WMON', decimals: 18, market: 'shMON/WMON'  },
+  '0xebE45A6ceA7760a71D8e0fa5a0AE80a75320D708': { underlying: 'WMON', decimals: 18, market: 'sMON/WMON'   },
 }
 
 async function fetchCurvance(user: string): Promise<any[]> {
   try {
-    const addrs = Object.keys(CURVANCE_CTOKENS)
-    // Curvance cTokens are 1:1 with underlying (no exchangeRate, confirmed on-chain)
-    // borrowBalanceStored() does not exist in Curvance — pure collateral vaults for now
-    const calls = addrs.map((addr, i) => ethCall(addr, balanceOfData(user), i))
+    const collateralAddrs = Object.keys(CURVANCE_CTOKENS)
+    const debtAddrs       = Object.keys(CURVANCE_DEBT_CTOKENS)
+    const userPadded      = user.slice(2).toLowerCase().padStart(64, '0')
+
+    const calls = [
+      ...collateralAddrs.map((addr, i) => ethCall(addr, balanceOfData(user), i)),
+      ...debtAddrs.map((addr, i) => ethCall(addr, '0x21570256' + userPadded, 100 + i)),
+    ]
     const results = await rpcBatch(calls)
 
-    // Group by market
     const markets: Record<string, { collateral: any[]; debt: any[] }> = {}
     const allSymbols: string[] = []
 
-    addrs.forEach((addr, i) => {
+    collateralAddrs.forEach((addr, i) => {
       const info   = CURVANCE_CTOKENS[addr]
       const balRaw = decodeUint(results.find((r: any) => r.id === i)?.result ?? '0x')
       if (balRaw === 0n) return
-
       if (!markets[info.market]) markets[info.market] = { collateral: [], debt: [] }
-
-      // 1 cToken = 1 underlying (Curvance architecture, confirmed from on-chain tx)
-      const amount = Number(balRaw) / Math.pow(10, info.decimals)
+      const amount = Number(balRaw) / 1e18
       markets[info.market].collateral.push({ symbol: info.underlying, amount, amountUSD: 0 })
-      allSymbols.push(info.underlying)
+      if (!allSymbols.includes(info.underlying)) allSymbols.push(info.underlying)
+    })
+
+    debtAddrs.forEach((addr, i) => {
+      const info = CURVANCE_DEBT_CTOKENS[addr]
+      const raw  = results.find((r: any) => r.id === 100 + i)?.result ?? '0x'
+      if (!raw || raw === '0x' || raw.length < 2 + 6 * 64) return
+      const hex       = raw.slice(2)
+      const borrowRaw = BigInt('0x' + hex.slice(5 * 64, 6 * 64))
+      if (borrowRaw === 0n) return
+      if (!markets[info.market]) markets[info.market] = { collateral: [], debt: [] }
+      const amount = Number(borrowRaw) / 1e18
+      markets[info.market].debt.push({ symbol: info.underlying, amount, amountUSD: 0 })
+      if (!allSymbols.includes(info.underlying)) allSymbols.push(info.underlying)
     })
 
     if (!Object.keys(markets).length) return []
 
-    // Get prices for all tokens
     const prices = await getTokenPricesUSD(allSymbols)
 
     return Object.entries(markets).map(([marketName, { collateral, debt }]) => {
@@ -641,7 +657,6 @@ async function fetchCurvance(user: string): Promise<any[]> {
         totalDebtUSD += d.amountUSD
       }
 
-      // Curvance HF: collateral * liqThreshold / debt (use 0.975 — max LTV is 97.5%)
       const healthFactor = totalDebtUSD > 0
         ? (totalCollateralUSD * 0.975) / totalDebtUSD
         : null
