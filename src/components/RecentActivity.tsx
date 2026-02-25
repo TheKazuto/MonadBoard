@@ -1,6 +1,6 @@
 'use client'
 
-import { useAccount } from 'wagmi'
+import { useWallet } from '@/contexts/WalletContext'
 import { RefreshCw, ChevronRight, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Zap, Image, ExternalLink, Wallet } from 'lucide-react'
 import { useTransactions, formatTimeAgo, shortenAddr, Transaction } from '@/contexts/TransactionContext'
 
@@ -56,7 +56,7 @@ function TxRow({ tx }: { tx: Transaction }) {
 }
 
 export default function RecentActivity() {
-  const { isConnected } = useAccount()
+  const { isConnected } = useWallet()
   const { transactions, status, lastUpdated, refresh } = useTransactions()
   const recent = transactions.slice(0, 6)
 
