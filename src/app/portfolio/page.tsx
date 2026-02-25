@@ -181,7 +181,7 @@ function NFTListRow({ nft }: { nft: NFT }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function PortfolioPage() {
-  const { address, isConnected } = useWallet()
+  const { address, stableAddress, isConnected } = useWallet()
 
   const [tokens, setTokens]         = useState<Token[]>([])
   const [tokenValue, setTokenValue] = useState(0)
@@ -226,21 +226,20 @@ export default function PortfolioPage() {
   }, [])
 
   const refresh = useCallback(() => {
-    if (!address) return
-    fetchTokens(address)
-    fetchNFTs(address)
-  }, [address, fetchTokens, fetchNFTs])
+    fetchTokens(stableAddress)
+    fetchNFTs(stableAddress)
+  }, [stableAddress, fetchTokens, fetchNFTs])
 
   useEffect(() => {
-    if (isConnected && address) {
-      fetchTokens(address)
-      fetchNFTs(address)
+    if (stableAddress) {
+      fetchTokens(stableAddress)
+      fetchNFTs(stableAddress)
     } else {
       setTokens([]); setNfts([])
       setTokenValue(0); setNftValue(0); setNftTotal(0)
       setLastUpdated(null)
     }
-  }, [isConnected, address, fetchTokens, fetchNFTs])
+  }, [stableAddress, fetchTokens, fetchNFTs])
 
   const totalValue = tokenValue + nftValue
 

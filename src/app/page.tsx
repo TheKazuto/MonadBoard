@@ -147,17 +147,17 @@ function WalletSummary() {
 
 // ─── DeFi Positions widget (dashboard mini preview — top 3) ──────────────────
 function DeFiPositions() {
-  const { address, isConnected } = useWallet()
+  const { address, stableAddress, isConnected } = useWallet()
   const { fmtValue } = usePreferences()
   const [positions, setPositions] = useState<any[]>([])
   const [loading,   setLoading]   = useState(false)
   const [total,     setTotal]     = useState(0)
 
   useEffect(() => {
-    if (!isConnected || !address) { setPositions([]); setTotal(0); return }
+    if (!stableAddress) { setPositions([]); setTotal(0); return }
 
     setLoading(true)
-    fetch(`/api/defi?address=${address}`)
+    fetch(`/api/defi?address=${stableAddress}`)
       .then(r => r.json())
       .then(data => {
         const all: any[] = data.positions ?? []
@@ -175,7 +175,7 @@ function DeFiPositions() {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [address, isConnected])
+  }, [stableAddress])
 
   // Type label formatter
   function typeLabel(type: string) {

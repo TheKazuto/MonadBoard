@@ -373,17 +373,17 @@ const PROTOCOLS = [
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function DefiPage() {
-  const { address, isConnected } = useWallet()
+  const { address, stableAddress, isConnected } = useWallet()
   const [data, setData]         = useState<any>(null)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
   const load = useCallback(async () => {
-    if (!address) return
+    if (!stableAddress) return
     setLoading(true); setError(null)
     try {
-      const res = await fetch(`/api/defi?address=${address}`)
+      const res = await fetch(`/api/defi?address=${stableAddress}`)
       if (!res.ok) throw new Error('Failed to load positions')
       const json = await res.json()
       setData(json)
@@ -393,7 +393,7 @@ export default function DefiPage() {
     } finally { setLoading(false) }
   }, [address])
 
-  useEffect(() => { if (isConnected && address) load() }, [isConnected, address, load])
+  useEffect(() => { if (stableAddress) load() }, [stableAddress, load])
 
   const positions  = data?.positions ?? []
   const summary    = data?.summary   ?? {}

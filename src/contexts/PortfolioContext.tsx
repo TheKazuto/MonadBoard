@@ -69,7 +69,7 @@ export function usePortfolio() {
 }
 
 export function PortfolioProvider({ children }: { children: ReactNode }) {
-  const { address, isConnected } = useWallet()
+  const { stableAddress: address, isConnected } = useWallet()
 
   const [totals,      setTotals]      = useState<PortfolioTotals>(ZERO)
   const [status,      setStatus]      = useState<LoadStatus>('idle')
