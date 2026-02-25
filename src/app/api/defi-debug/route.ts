@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 
 const RPC = 'https://rpc.monad.xyz'
 
+async function rpc(method: string, params: any[]) {
+  const res = await fetch(RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    cache: 'no-store',
+  })
+  return (await res.json()).result ?? null
+}
+
 async function batchCall(calls: any[]) {
   const res = await fetch(RPC, {
     method: 'POST',
@@ -15,73 +25,77 @@ async function batchCall(calls: any[]) {
 
 function padAddr(a: string) { return a.slice(2).toLowerCase().padStart(64, '0') }
 
-// Market Manager for gMON/WMON — found in tx logs (0xb00a...)
-const MARKET_MANAGER = '0xb00aff53a4df2b4e2f97a3d9ffadb55564c8e42f'
-const CGMON          = '0x5ca6966543c0786f547446234492d2f11c82f11f'
-
-// Common function selectors that lending protocols use for borrow balance
-const SELECTORS: Record<string, string> = {
-  borrowBalanceOf:       '0x28c0e77b', // borrowBalanceOf(address)
-  getBorrowBalance:      '0x0e752702', // borrowBalanceOf(address) alt
-  debtBalanceOf:         '0x5fe3b567', // debtBalanceOf(address)
-  borrowBalance:         '0x18160ddd', // totalSupply (wrong but let's see)
-  accountBorrows:        '0x1e87c356', // accountBorrows(address) returns (uint,uint)
-  borrowBalanceCurrent:  '0xaa5af0fd', // borrowBalanceCurrent(address)
-  debtOf:                '0x7d945c6f', // debtOf(address)
-  getAccountSnapshot:    '0xc37f68e2', // getAccountSnapshot(address)
-  tokensAccrued:         '0x11f9cfe0', // tokensAccrued(address)
-  borrowIndex:           '0xaa5af0fd', // borrowIndex
-  // Market Manager specific
-  getBorrowedAmount:     '0x5c11d62e', // getBorrowedAmount(address)
-  getDebt:               '0xe5b7c3e4', // getDebt(address)
-  positionOf:            '0x8e5d588e', // positionOf(address)
-  accountLiquidity:      '0x5ec88c79', // getAccountLiquidity(address)
-  getHypotheticalLiq:    '0x4e79238f', // getHypotheticalAccountLiquidity
-}
+const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
 export async function GET(req: NextRequest) {
+  const tx      = req.nextUrl.searchParams.get('tx')
   const address = req.nextUrl.searchParams.get('address')
-  if (!address) return NextResponse.json({ error: 'need ?address=0x...' })
+  if (!tx) return NextResponse.json({ error: 'need ?tx=0x...' })
 
-  const calls: any[] = []
-  let id = 0
+  const [receipt, txData] = await Promise.all([
+    rpc('eth_getTransactionReceipt', [tx]),
+    rpc('eth_getTransactionByHash', [tx]),
+  ])
 
-  // Try all selectors on both cgMON and Market Manager
-  for (const [name, sel] of Object.entries(SELECTORS)) {
-    calls.push({ jsonrpc: '2.0', id: id++, method: 'eth_call', params: [{ to: CGMON,          data: sel + padAddr(address) }, 'latest'] })
-    calls.push({ jsonrpc: '2.0', id: id++, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: sel + padAddr(address) }, 'latest'] })
-  }
+  if (!receipt) return NextResponse.json({ error: 'tx not found' })
 
-  // Also try getAccountSnapshot(address) on cgMON — returns (err, cTokenBal, borrowBal, exchRate)
-  calls.push({ jsonrpc: '2.0', id: 900, method: 'eth_call', params: [{ to: CGMON, data: '0xc37f68e2' + padAddr(address) }, 'latest'] })
+  // Get symbol for every contract in logs
+  const contracts = [...new Set(receipt.logs.map((l: any) => l.address as string))]
+  const symCalls  = contracts.map((addr, i) => ({ jsonrpc: '2.0', id: i, method: 'eth_call', params: [{ to: addr, data: '0x95d89b41' }, 'latest'] }))
+  const symRes    = await batchCall(symCalls)
 
-  // Try no-arg calls on market manager
-  calls.push({ jsonrpc: '2.0', id: 901, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0x18160ddd' }, 'latest'] }) // totalSupply
-  calls.push({ jsonrpc: '2.0', id: 902, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0x95d89b41' }, 'latest'] }) // symbol
-  calls.push({ jsonrpc: '2.0', id: 903, method: 'eth_call', params: [{ to: MARKET_MANAGER, data: '0x313ce567' }, 'latest'] }) // decimals
-
-  const results = await batchCall(calls)
-
-  // Show non-empty, non-zero results
-  const interesting: any[] = []
-  const selNames = Object.keys(SELECTORS)
-
-  results.forEach((r: any) => {
-    const res = r.result
-    if (!res || res === '0x' || res === '0x0000000000000000000000000000000000000000000000000000000000000000') return
-    
-    const idx = r.id
-    let label = `id_${idx}`
-    if (idx < selNames.length * 2) {
-      const selName = selNames[Math.floor(idx / 2)]
-      const contract = idx % 2 === 0 ? 'cgMON' : 'MarketManager'
-      label = `${contract}.${selName}`
-    } else {
-      label = ['getAccountSnapshot(cgMON)', 'totalSupply(MM)', 'symbol(MM)', 'decimals(MM)'][idx - 900] ?? label
-    }
-    
-    interesting.push({ label, id: idx, result: res })
+  const symbols: Record<string, string> = {}
+  contracts.forEach((addr, i) => {
+    try {
+      const h = symRes.find((r: any) => r.id === i)?.result ?? ''
+      if (h?.length > 130) {
+        const hex = h.slice(2), offset = parseInt(hex.slice(0,64),16)*2, len = parseInt(hex.slice(offset,offset+64),16)
+        symbols[addr.toLowerCase()] = Buffer.from(hex.slice(offset+64, offset+64+len*2),'hex').toString('utf8')
+      }
+    } catch {}
   })
 
-  return NextResponse.json({ address, interesting, totalCalls: calls.length })
+  const transfers = receipt.logs
+    .filter((l: any) => l.topics[0] === TRANSFER)
+    .map((l: any) => ({
+      contract: l.address,
+      symbol:   symbols[l.address.toLowerCase()] ?? '?',
+      from:     '0x' + l.topics[1]?.slice(26),
+      to:       '0x' + l.topics[2]?.slice(26),
+      amountHex: l.data,
+      amount:   l.data !== '0x' ? (BigInt(l.data) / BigInt(1e14)).toString() + 'e-4' : '0',
+    }))
+
+  const otherLogs = receipt.logs
+    .filter((l: any) => l.topics[0] !== TRANSFER)
+    .map((l: any) => ({ contract: l.address, symbol: symbols[l.address.toLowerCase()] ?? '?', topic0: l.topics[0], data: l.data?.slice(0,66) }))
+
+  // Check current balanceOf + common debt selectors for address on all contracts
+  let balances: any[] = []
+  if (address) {
+    const balCalls = contracts.flatMap((addr, i) => [
+      { jsonrpc: '2.0', id: i*3,   method: 'eth_call', params: [{ to: addr, data: '0x70a08231' + padAddr(address) }, 'latest'] }, // balanceOf
+      { jsonrpc: '2.0', id: i*3+1, method: 'eth_call', params: [{ to: addr, data: '0x95dd9193' + padAddr(address) }, 'latest'] }, // borrowBalanceStored
+      { jsonrpc: '2.0', id: i*3+2, method: 'eth_call', params: [{ to: addr, data: '0x28c0e77b' + padAddr(address) }, 'latest'] }, // borrowBalanceOf
+    ])
+    const balRes = await batchCall(balCalls)
+    const zero   = '0x' + '0'.repeat(64)
+    balances = contracts.map((addr, i) => ({
+      addr,
+      symbol:              symbols[addr.toLowerCase()] ?? '?',
+      balanceOf:           balRes.find((r:any) => r.id === i*3)?.result,
+      borrowBalanceStored: balRes.find((r:any) => r.id === i*3+1)?.result,
+      borrowBalanceOf:     balRes.find((r:any) => r.id === i*3+2)?.result,
+    })).filter(b =>
+      [b.balanceOf, b.borrowBalanceStored, b.borrowBalanceOf].some(v => v && v !== '0x' && v !== zero)
+    )
+  }
+
+  return NextResponse.json({
+    txTo: txData?.to, inputSel: txData?.input?.slice(0,10),
+    contracts: contracts.map(a => ({ addr: a, symbol: symbols[a.toLowerCase()] ?? '?' })),
+    transfers,
+    otherLogs,
+    currentBalances: balances,
+  })
 }
