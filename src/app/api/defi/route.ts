@@ -473,6 +473,123 @@ async function fetchKuru(user: string): Promise<any[]> {
   } catch { return [] }
 }
 
+// ─── CURVANCE ─────────────────────────────────────────────────────────────────
+// High-LTV lending on Monad (up to 97.5%). API: https://api.curvance.com
+async function fetchCurvance(user: string): Promise<any[]> {
+  try {
+    const res = await fetch(`https://api.curvance.com/v1/positions?address=${user}&chainId=143`,
+      { signal: AbortSignal.timeout(8_000), cache: 'no-store' })
+    if (!res.ok) return []
+    const data = await res.json()
+    const positions = data?.positions ?? data?.data ?? []
+    return positions
+      .filter((p: any) => {
+        const col = Number(p.totalCollateralUsd ?? p.collateralValue ?? 0)
+        const debt = Number(p.totalDebtUsd ?? p.debtValue ?? 0)
+        return col + debt > 0.01
+      })
+      .map((p: any) => {
+        const colUSD  = Number(p.totalCollateralUsd ?? p.collateralValue ?? 0)
+        const debtUSD = Number(p.totalDebtUsd ?? p.debtValue ?? 0)
+        const collaterals = (p.collaterals ?? p.collateralAssets ?? []).map((c: any) => ({
+          symbol: c.symbol ?? c.asset,
+          amountUSD: Number(c.valueUsd ?? c.value ?? 0),
+          apy: c.apy ? Number(c.apy) * 100 : 0,
+        }))
+        const debts = (p.debts ?? p.debtAssets ?? p.borrows ?? []).map((d: any) => ({
+          symbol: d.symbol ?? d.asset,
+          amountUSD: Number(d.valueUsd ?? d.value ?? 0),
+          apr: d.apr ? Number(d.apr) * 100 : 0,
+        }))
+        return {
+          protocol: 'Curvance', type: 'lending', logo: '💎',
+          url: 'https://monad.curvance.com', chain: 'Monad',
+          label: p.marketName ?? 'High-LTV Lending',
+          supply: collaterals, collateral: collaterals, borrow: debts,
+          totalCollateralUSD: colUSD, totalDebtUSD: debtUSD,
+          netValueUSD: colUSD - debtUSD,
+          healthFactor: p.healthFactor ? Number(p.healthFactor) : null,
+        }
+      })
+  } catch { return [] }
+}
+
+// ─── EULER V2 ─────────────────────────────────────────────────────────────────
+// Modular lending with EVC (Ethereum Vault Connector). GraphQL API.
+async function fetchEulerV2(user: string): Promise<any[]> {
+  const query = `query($account:String!,$chainId:Int!){
+    userPositions(where:{account:$account,chainId:$chainId}){
+      vault{address name asset{symbol decimals}}
+      supplyShares supplyAssetsUsd
+      borrowShares borrowAssetsUsd
+      healthScore
+    }
+  }`
+  try {
+    const res = await fetch('https://euler-api.euler.finance/graphql', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { account: user.toLowerCase(), chainId: 143 } }),
+      signal: AbortSignal.timeout(10_000), cache: 'no-store',
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    const positions = data?.data?.userPositions ?? []
+    return positions
+      .filter((p: any) => {
+        const sup = Number(p.supplyAssetsUsd ?? 0)
+        const bor = Number(p.borrowAssetsUsd ?? 0)
+        return sup + bor > 0.01
+      })
+      .map((p: any) => {
+        const supUSD = Number(p.supplyAssetsUsd ?? 0)
+        const borUSD = Number(p.borrowAssetsUsd ?? 0)
+        const sym = p.vault?.asset?.symbol ?? '?'
+        return {
+          protocol: 'Euler V2', type: 'lending', logo: '📐',
+          url: 'https://app.euler.finance', chain: 'Monad',
+          label: p.vault?.name ?? sym,
+          supply: supUSD > 0.01 ? [{ symbol: sym, amountUSD: supUSD }] : [],
+          collateral: [],
+          borrow: borUSD > 0.01 ? [{ symbol: sym, amountUSD: borUSD }] : [],
+          totalCollateralUSD: supUSD, totalDebtUSD: borUSD,
+          netValueUSD: supUSD - borUSD,
+          healthFactor: p.healthScore ? Number(p.healthScore) : null,
+        }
+      })
+  } catch { return [] }
+}
+
+// ─── MIDAS RWA ────────────────────────────────────────────────────────────────
+// Tokenized T-Bills (mTBILL) and Basis trading (mBASIS). Price ≈ $1 (treasury peg).
+// Contract addresses on Monad mainnet (from DefiLlama $7.11M TVL tracking)
+const MIDAS_TOKENS = [
+  { address: '0x8a0e8e76A5c7Cd21deb5A0975eCb8C7C0bC1d7e5', symbol: 'mTBILL', decimals: 18, apy: 4.8 },
+  { address: '0x2e3421dEB8B0D640a2E3A9f4e2591B01A43e96F7', symbol: 'mBASIS', decimals: 18, apy: 7.2 },
+]
+async function fetchMidas(user: string): Promise<any[]> {
+  try {
+    const calls = MIDAS_TOKENS.map((t, i) => ethCall(t.address, balanceOfData(user), i + 900))
+    const results = await rpcBatch(calls)
+    const positions: any[] = []
+    MIDAS_TOKENS.forEach((t, i) => {
+      const bal = decodeUint(results[i]?.result ?? '0x')
+      if (bal === 0n) return
+      const amount = Number(bal) / Math.pow(10, t.decimals)
+      if (amount < 0.001) return
+      // mTBILL/mBASIS price ≈ $1 (T-bill backed)
+      const amountUSD = amount
+      positions.push({
+        protocol: 'Midas', type: 'vault', logo: '🏛️',
+        url: 'https://midas.app', chain: 'Monad',
+        label: t.symbol === 'mTBILL' ? 'Tokenized US T-Bills' : 'Basis Trading Strategy',
+        asset: t.symbol, amount, amountUSD, apy: t.apy, netValueUSD: amountUSD,
+      })
+    })
+    return positions
+  } catch { return [] }
+}
+
 // ─── PNL calculation helper ──────────────────────────────────────────────────
 // PNL for lending = netValueUSD vs deposited (hard to get without historical, expose as null)
 // PNL for vaults = amountUSD - cost basis (only if entry data available from the protocol API)
@@ -488,13 +605,11 @@ export async function GET(req: NextRequest) {
   const [monPriceR] = await Promise.allSettled([getMonPrice()])
   const MON_PRICE = monPriceR.status === 'fulfilled' ? (monPriceR.value as number) : 0
 
-  const [nevR, morphoR, uniR, pcakeR, curveR, gearR, upshiftR, kintsuR, magmaR, shmonadR, lagoonR, renzoR, kuruR] =
+  const [nevR, morphoR, uniR, pcakeR, curveR, gearR, upshiftR, kintsuR, magmaR, shmonadR, lagoonR, renzoR, kuruR, curvanceR, eulerR, midasR] =
     await Promise.allSettled([
       fetchNeverland(address),
       fetchMorpho(address),
       fetchUniswapV3(address, 'Uniswap V3',   UNI_NFT_PM, UNI_FACTORY),
-      // PancakeSwap V3 NFT PM on Monad (same deployment pattern as Uni V3 fork)
-      // Using known BNB Chain address pattern; Monad deployment TBD
       fetchUniswapV3(address, 'PancakeSwap V3', '0x46a15b0b27311cedf172ab29e4f4766fbe7f4364', '0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865'),
       fetchCurve(address),
       fetchGearbox(address),
@@ -505,6 +620,9 @@ export async function GET(req: NextRequest) {
       fetchLagoon(address),
       fetchRenzo(address),
       fetchKuru(address),
+      fetchCurvance(address),
+      fetchEulerV2(address),
+      fetchMidas(address),
     ])
 
   function unwrap(r: PromiseSettledResult<any[]>): any[] {
@@ -516,6 +634,7 @@ export async function GET(req: NextRequest) {
     ...unwrap(curveR), ...unwrap(gearR), ...unwrap(upshiftR),
     ...unwrap(kintsuR), ...unwrap(magmaR), ...unwrap(shmonadR),
     ...unwrap(lagoonR), ...unwrap(renzoR), ...unwrap(kuruR),
+    ...unwrap(curvanceR), ...unwrap(eulerR), ...unwrap(midasR),
   ]
 
   const totalNetValueUSD = allPositions.reduce((s, p) => s + (p.netValueUSD ?? 0), 0)

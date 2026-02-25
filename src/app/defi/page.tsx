@@ -366,6 +366,9 @@ const PROTOCOLS = [
   { name: 'Lagoon',         url: 'https://app.lagoon.finance',       logo: '🏝️' },
   { name: 'Renzo',          url: 'https://app.renzoprotocol.com',    logo: '🔴' },
   { name: 'Kuru',           url: 'https://app.kuru.io',              logo: '🌀' },
+  { name: 'Curvance',       url: 'https://monad.curvance.com',       logo: '💎' },
+  { name: 'Euler V2',       url: 'https://app.euler.finance',        logo: '📐' },
+  { name: 'Midas',          url: 'https://midas.app',                logo: '🏛️' },
 ]
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
@@ -381,12 +384,12 @@ export default function DefiPage() {
     setLoading(true); setError(null)
     try {
       const res = await fetch(`/api/defi?address=${address}`)
-      if (!res.ok) throw new Error('Erro ao carregar posições')
+      if (!res.ok) throw new Error('Failed to load positions')
       const json = await res.json()
       setData(json)
       setUpdatedAt(new Date())
     } catch (e: any) {
-      setError(e.message ?? 'Erro desconhecido')
+      setError(e.message ?? 'Unknown error')
     } finally { setLoading(false) }
   }, [address])
 
@@ -406,8 +409,8 @@ export default function DefiPage() {
           <div className="w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center mx-auto mb-4">
             <Zap className="text-violet-500" size={28} />
           </div>
-          <h2 className="text-lg font-bold text-gray-800 mb-2">Conecte sua carteira</h2>
-          <p className="text-gray-400 text-sm">Conecte para visualizar suas posições DeFi nos protocolos Monad.</p>
+          <h2 className="text-lg font-bold text-gray-800 mb-2">Connect your wallet</h2>
+          <p className="text-gray-400 text-sm">Connect to view your DeFi positions across Monad protocols.</p>
         </div>
       </div>
     )
@@ -422,13 +425,13 @@ export default function DefiPage() {
             DeFi Positions
           </h1>
           <p className="text-gray-400 text-sm mt-0.5">
-            {PROTOCOLS.length} protocolos monitorados na Monad
+            16 protocols monitored on Monad
           </p>
         </div>
         <div className="flex items-center gap-3">
           {updatedAt && !loading && (
             <span className="text-xs text-gray-400">
-              {updatedAt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              {updatedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
           <button
@@ -437,7 +440,7 @@ export default function DefiPage() {
             className="btn-primary flex items-center gap-2 text-sm py-2 px-4 disabled:opacity-60"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Carregando...' : 'Atualizar'}
+            {loading ? 'Loading...' : 'Refresh'}
           </button>
         </div>
       </div>
@@ -468,9 +471,9 @@ export default function DefiPage() {
       {!loading && data && positions.length === 0 && (
         <div className="card p-10 text-center">
           <div className="text-4xl mb-3">🌐</div>
-          <h2 className="text-base font-bold text-gray-800 mb-1">Nenhuma posição encontrada</h2>
+          <h2 className="text-base font-bold text-gray-800 mb-1">No positions found</h2>
           <p className="text-gray-400 text-sm mb-6">
-            Comece a usar os protocolos abaixo para ver suas posições aqui.
+            Start using the protocols below to see your positions here.
           </p>
           <div className="flex flex-wrap gap-2 justify-center">
             {PROTOCOLS.map(p => (
@@ -541,7 +544,7 @@ export default function DefiPage() {
       {positions.length > 0 && (
         <div className="card p-4 mt-2">
           <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-3">
-            Protocolos Monitorados
+            Supported Protocols
           </p>
           <div className="flex flex-wrap gap-2">
             {PROTOCOLS.map(p => (
