@@ -117,13 +117,29 @@ async function fetchFloorPricesDebug(
         log.push(`A keys=${Object.keys(body).join(',')}`)
         const assets: any[] = body?.assets ?? body?.data ?? body?.results ?? body?.items ?? []
         log.push(`A assets_count=${assets.length}`)
-        if (assets.length > 0) log.push(`A sample_keys=${Object.keys(assets[0]).slice(0, 12).join(',')}`)
-        for (const asset of assets) {
-          const c = (asset?.contract_address ?? asset?.contractAddress ?? asset?.collection?.id ?? asset?.collection?.contract_address ?? '').toLowerCase()
+        if (assets.length > 0) {
+          log.push(`A sample_keys=${Object.keys(assets[0]).slice(0, 12).join(',')}`)
+          // Log full first item to understand structure
+          log.push(`A item0=${JSON.stringify(assets[0]).slice(0, 600)}`)
+        }
+        for (const item of assets) {
+          // ME v4 wraps each asset in an "asset" key: { asset: { ... } }
+          const asset = item?.asset ?? item
+          const col   = asset?.collection ?? asset?.token?.collection ?? {}
+          const c = (col?.contract_address ?? col?.id ?? asset?.contract_address ?? asset?.contractAddress ?? '').toLowerCase()
           if (contracts.includes(c)) {
-            const floor = asset?.floor_price ?? asset?.floorPrice ?? asset?.collection?.floor_price ?? asset?.collection?.floorPrice ?? 0
-            log.push(`A found contract=${c} floor=${floor}`)
+            // Floor price may be on collection or market object
+            const market = asset?.market ?? asset?.token?.market ?? {}
+            const floor =
+              col?.floor_price ?? col?.floorPrice ??
+              market?.floor_ask?.price?.amount?.native ??
+              market?.floorAsk?.price?.amount?.native ??
+              market?.floor_price ?? market?.floorPrice ??
+              asset?.floor_price ?? asset?.floorPrice ?? 0
+            log.push(`A found contract=${c} floor=${floor} col_keys=${Object.keys(col).slice(0,10).join(',')} market_keys=${Object.keys(market).slice(0,10).join(',')}`)
             if (floor > 0) floorMap[c] = Number(floor)
+          } else {
+            log.push(`A skipped c=${c} (not in contracts)`)
           }
         }
       } catch { log.push(`A parse_error body=${text.slice(0, 200)}`) }
