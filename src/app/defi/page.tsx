@@ -130,7 +130,7 @@ function LendingCard({ pos }: { pos: any }) {
           <TypeBadge type="lending" />
           {hf && (
             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${hf.bg} ${hf.color} ${hf.border}`}>
-              HF {hf.display}
+              Health Factor {hf.display}
             </span>
           )}
         </div>
