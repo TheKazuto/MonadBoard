@@ -9,8 +9,8 @@ import AdBanner from '@/components/AdBanner'
 import { usePortfolio } from '@/contexts/PortfolioContext'
 import { useWallet }    from '@/contexts/WalletContext'
 import { usePreferences } from '@/contexts/PreferencesContext'
-import {
 import { SORA } from '@/lib/styles'
+import {
   RefreshCw, Wallet, Image,
   Zap, ChevronRight, Bell,
 } from 'lucide-react'
