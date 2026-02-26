@@ -58,9 +58,8 @@ interface ChainCfg {
 }
 
 // Etherscan V2 supports all EVM chains via chainid param
-const ES_KEY = process.env.NEXT_PUBLIC_ETHERSCAN_API_KEY ?? ''
-const ES_V2  = (chainId: number) =>
-  `https://api.etherscan.io/v2/api?chainid=${chainId}&apikey=${ES_KEY}`
+// All chains route through the server-side proxy so ETHERSCAN_API_KEY stays secret
+const ES_V2 = (chainId: number) => `/api/approvals-logs?chainId=${chainId}`
 
 const CHAIN_CONFIGS: ChainCfg[] = [
   {
@@ -179,10 +178,16 @@ async function fetchLogsEtherscan(
     }))
   }
 
-  // status '0' can mean "no results" (message: 'No records found') — that's fine
-  if (data.message === 'No records found') return []
+  // status '0' with these messages = no approvals found (not an error)
+  if (data.message === 'No records found' || data.result?.length === 0) return []
 
-  // Anything else is a real error
+  // NOTOK typically means the API key doesn't have access to this chain
+  // Treat as empty rather than crashing the whole scan
+  if (data.status === '0') {
+    console.warn('[approvals] Etherscan returned:', data.message, '— treating as empty')
+    return []
+  }
+
   throw new Error(`Etherscan error: ${data.message ?? JSON.stringify(data)}`)
 }
 
@@ -491,7 +496,6 @@ export default function SecurityPage() {
   const nftCount   = visible.filter(a => a.type === 'NFT').length
   const chainLabel = CHAIN_CONFIGS.find(c => c.key === selectedChain)?.label ?? selectedChain
   const chainCfg   = CHAIN_CONFIGS.find(c => c.key === selectedChain)!
-  const hasEsKey   = !!ES_KEY
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
