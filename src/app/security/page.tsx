@@ -71,13 +71,13 @@ const CHAIN_CONFIGS: ChainCfg[] = [
   },
   {
     key: 'ETH', label: 'Ethereum', chainId: 1, color: '#627EEA',
-    viemChain: mainnet, rpc: 'https://cloudflare-eth.com',
+    viemChain: mainnet, rpc: 'https://eth.llamarpc.com',
     explorer: 'https://etherscan.io', logoSlug: 'ethereum',
     scanMode: 'etherscan', etherscanApi: ES_V2(1),
   },
   {
     key: 'BSC', label: 'BSC', chainId: 56, color: '#F3BA2F',
-    viemChain: bsc, rpc: 'https://bsc-dataseed.binance.org',
+    viemChain: bsc, rpc: 'https://bsc.llamarpc.com',
     explorer: 'https://bscscan.com', logoSlug: 'binance',
     scanMode: 'etherscan', etherscanApi: ES_V2(56),
   },
@@ -101,7 +101,7 @@ const CHAIN_CONFIGS: ChainCfg[] = [
   },
   {
     key: 'BASE', label: 'Base', chainId: 8453, color: '#0052FF',
-    viemChain: base, rpc: 'https://mainnet.base.org',
+    viemChain: base, rpc: 'https://base.llamarpc.com',
     explorer: 'https://basescan.org', logoSlug: 'base',
     scanMode: 'etherscan', etherscanApi: ES_V2(8453),
   },
@@ -248,7 +248,7 @@ async function scanApprovals(
 
   const client = createPublicClient({
     chain: cfg.viemChain,
-    transport: http(cfg.rpc, { timeout: 20_000 }),
+    transport: http(cfg.rpc, { timeout: 30_000 }),
     batch: { multicall: { wait: 16 } },
   })
 
@@ -298,13 +298,14 @@ async function scanApprovals(
   const nftMap   = dedupe(nftLogs,   2)
 
   const results: Approval[] = []
-  const BATCH = 20   // parallel on-chain calls per batch
+  const BATCH = 5   // conservative batch — avoids rate-limits on public RPCs
 
   // ── Verify ERC-20 allowances on-chain ────────────────────────────────────
   const erc20List = [...erc20Map.values()]
   for (let i = 0; i < erc20List.length; i += BATCH) {
     if (signal.aborted) break
     onProgress(`Checking ${Math.min(i + BATCH, erc20List.length)}/${erc20List.length} ERC-20 allowances…`)
+    if (i > 0) await new Promise(r => setTimeout(r, 100)) // avoid RPC rate-limit
     await Promise.all(erc20List.slice(i, i + BATCH).map(async (log) => {
       try {
         const token   = String(log.address).toLowerCase() as `0x${string}`
@@ -338,7 +339,7 @@ async function scanApprovals(
           blockNumber: BigInt(log.blockNumber ?? 0),
           explorerUrl: `${cfg.explorer}/token/${token}`,
         })
-      } catch { /* skip */ }
+      } catch (e: any) { console.warn('[allowance]', String(e?.shortMessage ?? e?.message)) }
     }))
   }
 
@@ -347,6 +348,7 @@ async function scanApprovals(
   for (let i = 0; i < nftList.length; i += BATCH) {
     if (signal.aborted) break
     onProgress(`Checking ${Math.min(i + BATCH, nftList.length)}/${nftList.length} NFT approvals…`)
+    if (i > 0) await new Promise(r => setTimeout(r, 100))
     await Promise.all(nftList.slice(i, i + BATCH).map(async (log) => {
       try {
         const contract = String(log.address).toLowerCase() as `0x${string}`
@@ -371,7 +373,7 @@ async function scanApprovals(
           blockNumber: BigInt(log.blockNumber ?? 0),
           explorerUrl: `${cfg.explorer}/address/${contract}`,
         })
-      } catch { /* skip */ }
+      } catch (e: any) { console.warn('[nft-approval]', String(e?.shortMessage ?? e?.message)) }
     }))
   }
 
