@@ -98,8 +98,9 @@ const OVERRIDE_LOGOS: Record<string, string> = {
   MATIC:`${CG}/4713/small/polygon-ecosystem-token.png`,
   AVAX: `${CG}/12559/small/Avalanche_Circle_RedWhite_Trans.png`,
   SOL:  `${CG}/4128/small/solana.png`,
-  MON:  `${CG}/35756/small/monad.jpg`,
-  WMON: `${CG}/35756/small/monad.jpg`,
+  // Monad - use the official purple M logo from their brand kit / TW chain logo
+  MON:  `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/monad/info/logo.png`,
+  WMON: `https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/monad/info/logo.png`,
   ARB:  `${CG}/16547/small/arb.jpg`,
   OP:   `${CG}/25244/small/Optimism.png`,
   FTM:  `${CG}/4001/small/fantom.png`,
@@ -188,44 +189,27 @@ function chainLogoUrl(chainName: string): string {
 }
 
 // ─── IMAGE WITH MULTI-SOURCE FALLBACK ────────────────────────────────────────
-// Tries each URL in sequence; moves to next on error; shows initials avatar as last resort
-function TokenImage({
-  token, chainName, src, symbol, size = 28
-}: {
-  token?: Token; chainName?: string; src?: string; symbol: string; size?: number
-}) {
-  const urls: string[] = token && chainName
-    ? buildLogoUrls(token, chainName)
-    : src ? [src] : []
-
+// Inner component — receives a fixed urls array and tries each in sequence
+function TokenImageInner({ urls, symbol, size }: { urls: string[]; symbol: string; size: number }) {
   const [idx, setIdx] = useState(0)
-  // Reset index when the token changes
-  const keyRef = useRef(symbol + (token?.address ?? src ?? ''))
-  const currentKey = symbol + (token?.address ?? src ?? '')
-  if (keyRef.current !== currentKey) {
-    keyRef.current = currentKey
-    // Can't call setState during render, so we use a different approach:
-    // The key prop on the img element will force remount
-  }
 
-  const currentSrc = urls[idx]
+  const avatar = (
+    <div className="rounded-full flex items-center justify-center text-white font-bold shrink-0"
+      style={{
+        width: size, height: size,
+        background: `hsl(${((([...symbol].reduce((h,c) => c.charCodeAt(0)+((h<<5)-h),0)) % 360)+360)%360}, 60%, 50%)`,
+        fontSize: size * 0.38
+      }}>
+      {symbol.slice(0, 2).toUpperCase()}
+    </div>
+  )
 
-  if (!currentSrc || idx >= urls.length) {
-    const hue = [...symbol].reduce((h, c) => c.charCodeAt(0) + ((h << 5) - h), 0)
-    const bg = `hsl(${((hue % 360) + 360) % 360}, 60%, 50%)`
-    return (
-      <div className="rounded-full flex items-center justify-center text-white font-bold shrink-0"
-        style={{ width: size, height: size, background: bg, fontSize: size * 0.38 }}>
-        {symbol.slice(0, 2).toUpperCase()}
-      </div>
-    )
-  }
+  if (idx >= urls.length || !urls[idx]) return avatar
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      key={currentKey + idx}
-      src={currentSrc}
+      src={urls[idx]}
       alt={symbol}
       width={size}
       height={size}
@@ -234,6 +218,17 @@ function TokenImage({
       onError={() => setIdx(i => i + 1)}
     />
   )
+}
+
+// Outer wrapper — uses `key` to force full remount (and idx reset) when token changes
+function TokenImage({
+  token, chainName, src, symbol, size = 28
+}: {
+  token?: Token; chainName?: string; src?: string; symbol: string; size?: number
+}) {
+  const urls = token && chainName ? buildLogoUrls(token, chainName) : src ? [src] : []
+  const stableKey = (token?.address ?? src ?? symbol) + (chainName ?? '')
+  return <TokenImageInner key={stableKey} urls={urls} symbol={symbol} size={size} />
 }
 
 // ─── API HELPERS ──────────────────────────────────────────────────────────────
