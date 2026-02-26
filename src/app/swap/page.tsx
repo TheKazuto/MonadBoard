@@ -10,7 +10,9 @@ import { useSendTransaction, useChainId, useSwitchChain } from 'wagmi'
 import { encodeFunctionData } from 'viem'
 
 // ─── INTEGRATOR CONFIG ────────────────────────────────────────────────────────
-const FEE_RECEIVER = '0x31815191b09e3D0F37FEF2d61c62487AD3bF327F'
+// Set NEXT_PUBLIC_FEE_RECEIVER in .env.local to your wallet address to earn 0.2% swap fees
+// Leave unset to disable fee collection (swap will still work normally)
+const FEE_RECEIVER = process.env.NEXT_PUBLIC_FEE_RECEIVER ?? '0x31815191b09e3D0F37FEF2d61c62487AD3bF327F'
 const FEE_PERCENT  = 0.2
 const REFERRER     = 'monboard.xyz'
 const NATIVE       = '0x0000000000000000000000000000000000000000'
@@ -361,7 +363,8 @@ async function fetchQuote(
       srcTokenAddress: srcToken.address, srcTokenBlockchain: srcChain,
       srcTokenAmount: srcAmount,
       dstTokenAddress: dstToken.address, dstTokenBlockchain: dstChain,
-      referrer: REFERRER, fee: FEE_PERCENT, feeTarget: FEE_RECEIVER,
+      referrer: REFERRER,
+      ...(FEE_RECEIVER ? { fee: FEE_PERCENT, feeTarget: FEE_RECEIVER } : {}),
       slippageTolerance: isCross ? SLIPPAGE_CROSS : SLIPPAGE_ON_CHAIN,
     }),
   })
@@ -381,7 +384,8 @@ async function fetchSwapTx(
       srcTokenAddress: srcToken.address, srcTokenBlockchain: srcChain,
       srcTokenAmount: srcAmount,
       dstTokenAddress: dstToken.address, dstTokenBlockchain: dstChain,
-      referrer: REFERRER, fee: FEE_PERCENT, feeTarget: FEE_RECEIVER,
+      referrer: REFERRER,
+      ...(FEE_RECEIVER ? { fee: FEE_PERCENT, feeTarget: FEE_RECEIVER } : {}),
       slippageTolerance: srcChain !== dstChain ? SLIPPAGE_CROSS : SLIPPAGE_ON_CHAIN,
       fromAddress, id: quoteId, receiver,
     }),
