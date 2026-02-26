@@ -70,18 +70,36 @@ const COINGECKO_PLATFORM: Record<string, string> = {
 }
 
 // ─── LOGO CDN SOURCES ────────────────────────────────────────────────────────
-const TW_BASE = 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains'
+const TW_BASE  = 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains'
 const UNI_BASE = 'https://raw.githubusercontent.com/Uniswap/assets/master/blockchains'
+const LLAMA    = 'https://icons.llamao.fi/icons/chains'
 
-// TrustWallet chain slug mapping
+// DefiLlama slugs — 100% coverage confirmed (ETH, BSC, Monad, zkSync, Avalanche, all chains)
+const LLAMA_SLUG: Record<string, string> = {
+  ETH: 'ethereum',       BSC: 'binance',          POLYGON: 'polygon',
+  ARBITRUM: 'arbitrum',  OPTIMISM: 'optimism',     BASE: 'base',
+  AVALANCHE: 'avalanche', SOLANA: 'solana',        MONAD: 'monad',
+  FANTOM: 'fantom',      CRONOS: 'cronos',         GNOSIS: 'gnosis',
+  CELO: 'celo',          HARMONY: 'harmony',       MOONBEAM: 'moonbeam',
+  MOONRIVER: 'moonriver', AURORA: 'aurora',        BOBA: 'boba',
+  METIS: 'metis',        LINEA: 'linea',           ZKSYNC: 'zksync%20era',
+  SCROLL: 'scroll',      MANTLE: 'mantle',         BLAST: 'blast',
+  KLAYTN: 'klaytn',      KAVA: 'kava',             IOTEX: 'iotex',
+  TON: 'ton',            NEAR: 'near',             TRON: 'tron',
+  BITCOIN: 'bitcoin',    FUSE: 'fuse',             OKT: 'okexchain',
+  ROOTSTOCK: 'rootstock', FLARE: 'flare',          TELOS: 'telos',
+}
+
+// TrustWallet slugs — fallback (AVALANCHE missing, ZKSYNC uses wrong slug)
 const TW_CHAIN_SLUG: Record<string, string> = {
-  ETH: 'ethereum', BSC: 'smartchain', POLYGON: 'polygon',
-  AVALANCHE: 'avalanche', ARBITRUM: 'arbitrum', OPTIMISM: 'optimism',
-  BASE: 'base', SOLANA: 'solana', FANTOM: 'fantom', CRONOS: 'cronos',
-  GNOSIS: 'xdai', CELO: 'celo', HARMONY: 'harmony', MOONBEAM: 'moonbeam',
-  MOONRIVER: 'moonriver', AURORA: 'aurora', BOBA: 'boba', METIS: 'metis',
-  LINEA: 'linea', ZKSYNC: 'zksync', SCROLL: 'scroll', MANTLE: 'mantle',
-  BLAST: 'blast',
+  ETH: 'ethereum',   BSC: 'smartchain', POLYGON: 'polygon',
+  ARBITRUM: 'arbitrum', OPTIMISM: 'optimism', BASE: 'base',
+  SOLANA: 'solana',  FANTOM: 'fantom',  CRONOS: 'cronos',
+  GNOSIS: 'xdai',    CELO: 'celo',      HARMONY: 'harmony',
+  MOONBEAM: 'moonbeam', MOONRIVER: 'moonriver', AURORA: 'aurora',
+  BOBA: 'boba',      METIS: 'metis',    LINEA: 'linea',
+  SCROLL: 'scroll',  MANTLE: 'mantle',  BLAST: 'blast',
+  MONAD: 'monad',
 }
 
 // CoinGecko CDN overrides for well-known tokens by symbol
@@ -181,11 +199,18 @@ const NATIVE_TOKENS: Record<string, Token> = {
   FANTOM:    { symbol: 'FTM',  name: 'Fantom',    address: NATIVE, decimals: 18, logoURI: OVERRIDE_LOGOS.FTM },
 }
 
+// Returns ordered list of URLs to try for a chain logo
+function chainLogoUrls(chainName: string): string[] {
+  const urls: string[] = []
+  const llamaSlug = LLAMA_SLUG[chainName]
+  if (llamaSlug) urls.push(`${LLAMA}/rsz_${llamaSlug}.jpg`)
+  const twSlug = TW_CHAIN_SLUG[chainName]
+  if (twSlug) urls.push(`${TW_BASE}/${twSlug}/info/logo.png`)
+  return urls
+}
+// Kept for chain selectors that pass src= directly (single URL compat)
 function chainLogoUrl(chainName: string): string {
-  const slug = TW_CHAIN_SLUG[chainName]
-  if (slug) return `${TW_BASE}/${slug}/info/logo.png`
-  if (chainName === 'MONAD') return OVERRIDE_LOGOS.MON
-  return ''
+  return chainLogoUrls(chainName)[0] ?? ''
 }
 
 // ─── IMAGE WITH MULTI-SOURCE FALLBACK ────────────────────────────────────────
@@ -385,7 +410,7 @@ function ChainModal({ chains, onSelect, onClose }: {
           {filtered.map(c => (
             <button key={c.name} onClick={() => { onSelect(c); onClose() }}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-violet-50 transition-colors text-left">
-              <TokenImage src={chainLogoUrl(c.name)} symbol={c.name} size={32} />
+              <TokenImageInner urls={chainLogoUrls(c.name)} symbol={c.name} size={32} />
               <div>
                 <p className="text-sm font-semibold text-gray-800">{c.name}</p>
                 <p className="text-xs text-gray-400">{c.type}</p>
@@ -590,7 +615,7 @@ export default function SwapPage() {
             <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">From</span>
             <button onClick={() => setModal('fromChain')}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-gray-200 hover:border-violet-300 hover:bg-violet-50 transition-colors text-xs font-medium text-gray-700">
-              <TokenImage src={chainLogoUrl(fromChain.name)} symbol={fromChain.name} size={16} />
+              <TokenImageInner urls={chainLogoUrls(fromChain.name)} symbol={fromChain.name} size={16} />
               {fromChain.name}
               <ChevronDown size={11} className="text-gray-400" />
             </button>
@@ -622,7 +647,7 @@ export default function SwapPage() {
             <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">To</span>
             <button onClick={() => setModal('toChain')}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-gray-200 hover:border-violet-300 hover:bg-violet-50 transition-colors text-xs font-medium text-gray-700">
-              <TokenImage src={chainLogoUrl(toChain.name)} symbol={toChain.name} size={16} />
+              <TokenImageInner urls={chainLogoUrls(toChain.name)} symbol={toChain.name} size={16} />
               {toChain.name}
               <ChevronDown size={11} className="text-gray-400" />
             </button>
