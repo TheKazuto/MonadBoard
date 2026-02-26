@@ -5,11 +5,12 @@ import { useWallet }        from '@/contexts/WalletContext'
 import { usePortfolio }     from '@/contexts/PortfolioContext'
 import { usePreferences }   from '@/contexts/PreferencesContext'
 import type { Currency, TimeRange } from '@/contexts/PreferencesContext'
+import { CURRENCIES, CURRENCY_LABELS } from '@/contexts/PreferencesContext'
 import { User, Copy, ExternalLink, Shield, CheckCircle, Lock } from 'lucide-react'
+import { shortenAddr } from '@/contexts/TransactionContext'
 
-function shortenAddress(addr: string) {
-  return `${addr.slice(0, 6)}...${addr.slice(-4)}`
-}
+// Single stable object reference — avoids creating a new object on every render
+const SORA = { fontFamily: 'Sora, sans-serif' } as const
 
 export default function AccountPage() {
   const [copied, setCopied] = useState(false)
@@ -28,15 +29,11 @@ export default function AccountPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const handleDisconnect = () => {
-    disconnect()
-  }
-
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 space-y-5">
       {/* Header */}
       <div>
-        <h1 className="font-display text-2xl font-bold text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h1 className="font-display text-2xl font-bold text-gray-900" style={SORA}>
           Account
         </h1>
         <p className="text-gray-500 text-sm mt-1">Manage your profile and preferences</p>
@@ -51,7 +48,7 @@ export default function AccountPage() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <p className="text-white font-display font-bold text-lg" style={{ fontFamily: 'Sora, sans-serif' }}>My Wallet</p>
+              <p className="text-white font-display font-bold text-lg" style={SORA}>My Wallet</p>
               {hasNFT && (
                 <span className="px-2 py-0.5 rounded-full bg-white/20 text-white text-xs font-semibold">
                   ⭐ NFT Holder
@@ -62,7 +59,7 @@ export default function AccountPage() {
             {isConnected && address ? (
               <>
                 <div className="flex items-center gap-2">
-                  <p className="text-violet-200 text-sm font-mono">{shortenAddress(address)}</p>
+                  <p className="text-violet-200 text-sm font-mono">{shortenAddr(address)}</p>
                   <button onClick={handleCopy} className="text-violet-200 hover:text-white transition-colors" title="Copy address">
                     {copied ? <CheckCircle size={14} /> : <Copy size={14} />}
                   </button>
@@ -99,7 +96,7 @@ export default function AccountPage() {
             {hasNFT ? <Shield size={22} className="text-emerald-600" /> : <Lock size={22} className="text-violet-500" />}
           </div>
           <div className="flex-1">
-            <h3 className="font-display font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+            <h3 className="font-display font-semibold text-gray-800" style={SORA}>
               {hasNFT ? '✅ Premium Access Unlocked' : 'MonBoard NFT Access'}
             </h3>
             {hasNFT ? (
@@ -131,7 +128,7 @@ export default function AccountPage() {
 
       {/* Settings */}
       <div className="card p-5">
-        <h2 className="font-display font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>Preferences</h2>
+        <h2 className="font-display font-semibold text-gray-800 mb-4" style={SORA}>Preferences</h2>
         <div className="space-y-4">
           {/* Currency */}
           <div className="flex items-center justify-between">
@@ -144,9 +141,9 @@ export default function AccountPage() {
               onChange={e => setCurrency(e.target.value as Currency)}
               className="text-sm border border-violet-100 rounded-lg px-3 py-1.5 text-gray-700 bg-violet-50/30 focus:outline-none focus:border-violet-300"
             >
-              <option value="USD">USD ($)</option>
-              <option value="EUR">EUR (€)</option>
-              <option value="BRL">BRL (R$)</option>
+              {CURRENCIES.map(c => (
+                <option key={c} value={c}>{CURRENCY_LABELS[c]}</option>
+              ))}
             </select>
           </div>
 
@@ -163,7 +160,7 @@ export default function AccountPage() {
               )}
             </div>
             <div className="grid grid-cols-3 gap-2">
-              {(['USD', 'EUR', 'BRL'] as Currency[]).map(c => (
+              {CURRENCIES.map(c => (
                 <div
                   key={c}
                   onClick={() => setCurrency(c)}
@@ -204,7 +201,7 @@ export default function AccountPage() {
 
       {/* About */}
       <div className="card p-5">
-        <h2 className="font-display font-semibold text-gray-800 mb-3" style={{ fontFamily: 'Sora, sans-serif' }}>About MonBoard</h2>
+        <h2 className="font-display font-semibold text-gray-800 mb-3" style={SORA}>About MonBoard</h2>
         <p className="text-sm text-gray-500 mb-3">
           MonBoard is the premier portfolio dashboard for the Monad ecosystem. Track your assets, DeFi positions, and NFTs in one place.
         </p>
@@ -225,7 +222,7 @@ export default function AccountPage() {
       {/* Disconnect */}
       {isConnected && (
         <button
-          onClick={handleDisconnect}
+          onClick={disconnect}
           className="w-full py-3 rounded-xl border-2 border-red-100 text-red-500 text-sm font-medium hover:bg-red-50 transition-colors"
         >
           Disconnect Wallet

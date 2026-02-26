@@ -11,6 +11,14 @@ const SYMBOLS: Record<Currency, string> = {
   BRL: 'R$',
 }
 
+// Exported so consumers can build selects/tiles without hardcoding the list
+export const CURRENCIES: Currency[] = ['USD', 'EUR', 'BRL']
+export const CURRENCY_LABELS: Record<Currency, string> = {
+  USD: 'USD ($)',
+  EUR: 'EUR (€)',
+  BRL: 'BRL (R$)',
+}
+
 // Fallback rates used before the API responds
 const FALLBACK_RATES: Record<Currency, number> = {
   USD: 1,
