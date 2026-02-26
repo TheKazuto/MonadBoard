@@ -985,6 +985,10 @@ export default function SwapPage() {
               </div>
             )}
             <div className="flex justify-between px-4 py-2.5">
+              <span className="text-gray-500">Slippage tolerance</span>
+              <span className="font-medium text-gray-700">{isCrossChain ? SLIPPAGE_CROSS : SLIPPAGE_ON_CHAIN}%</span>
+            </div>
+            <div className="flex justify-between px-4 py-2.5">
               <span className="text-gray-500">Route</span>
               <span className="font-medium text-violet-600 capitalize">
                 {(quote.provider ?? quote.type ?? quote.providerType ?? quote.tradeType ?? '—')
