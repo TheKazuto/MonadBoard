@@ -1,7 +1,7 @@
-import { cachedFetch, getCached } from '@/lib/dataCache'
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
+import { cachedFetch } from '@/lib/dataCache'
 import { useWallet } from '@/contexts/WalletContext'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { RefreshCw, Wallet } from 'lucide-react'
@@ -53,14 +53,13 @@ export default function TokenExposure() {
   const [error, setError] = useState(false)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
-  async function fetchTokens() {
+  async function fetchTokens(force = false) {
     if (!stableAddress) return
     setLoading(true)
     setError(false)
     try {
-      const res = await fetch(`/api/token-exposure?address=${stableAddress}`)
-      const json = await res.json()
-      if (json.error) throw new Error(json.error)
+      const json = await cachedFetch<ApiResponse>('/api/token-exposure', stableAddress, force)
+      if ((json as any).error) throw new Error((json as any).error)
       setData(json)
       setLastUpdated(new Date())
     } catch {
@@ -130,7 +129,7 @@ export default function TokenExposure() {
         <div className="flex flex-col items-center justify-center py-6 gap-3 text-center">
           <p className="text-sm text-red-400">Failed to load balances</p>
           <button
-            onClick={fetchTokens}
+            onClick={() => fetchTokens(true)}
             className="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-1"
           >
             <RefreshCw size={12} /> Try again
@@ -172,7 +171,7 @@ export default function TokenExposure() {
           )}
         </div>
         <button
-          onClick={fetchTokens}
+          onClick={() => fetchTokens(true)}
           disabled={loading}
           className="p-1.5 rounded-lg hover:bg-gray-50 text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-40"
           title="Refresh"

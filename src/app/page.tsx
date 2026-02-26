@@ -1,13 +1,11 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
 import TopTokens from '@/components/TopTokens'
 import RecentActivity from '@/components/RecentActivity'
 import FearAndGreed from '@/components/FearAndGreed'
 import TokenExposure from '@/components/TokenExposure'
 import PortfolioHistory from '@/components/PortfolioHistory'
 import AdBanner from '@/components/AdBanner'
-import { cachedFetch, getCached } from '@/lib/dataCache'
 import { usePortfolio } from '@/contexts/PortfolioContext'
 import { useWallet }    from '@/contexts/WalletContext'
 import { usePreferences } from '@/contexts/PreferencesContext'
@@ -15,15 +13,6 @@ import {
   RefreshCw, Wallet, Image,
   Zap, ChevronRight, Bell,
 } from 'lucide-react'
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-function fmt(v: number) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(2)}K`
-  if (v >= 1)         return `$${v.toFixed(2)}`
-  if (v > 0)          return `$${v.toFixed(4)}`
-  return '$0.00'
-}
 
 // ─── Wallet Summary hero ──────────────────────────────────────────────────────
 function WalletSummary() {
@@ -147,48 +136,34 @@ function WalletSummary() {
   )
 }
 
+// ─── DeFi Positions helpers (outside component — stable references) ─────────
+function typeLabel(type: string): string {
+  if (type === 'lending')   return 'Lending'
+  if (type === 'vault')     return 'Vault'
+  if (type === 'liquidity') return 'Liquidity'
+  return type
+}
+
+function getApy(pos: any): number | null {
+  if (pos.apy != null && pos.apy > 0)  return pos.apy
+  if (pos.supply?.[0]?.apy != null)    return pos.supply[0].apy
+  return null
+}
+
 // ─── DeFi Positions widget (dashboard mini preview — top 3) ──────────────────
+// Reads defiPositions directly from PortfolioContext — no extra API call needed.
 function DeFiPositions() {
-  const { address, stableAddress, isConnected } = useWallet()
-  const { fmtValue } = usePreferences()
-  const [positions, setPositions] = useState<any[]>([])
-  const [loading,   setLoading]   = useState(false)
-  const [total,     setTotal]     = useState(0)
-  const [error,     setError]     = useState(false)
+  const { totals, status, refresh } = usePortfolio()
+  const { isConnected }             = useWallet()
+  const { fmtValue }                = usePreferences()
 
-  const loadDefi = useCallback((force = false) => {
-    if (!stableAddress) { setPositions([]); setTotal(0); return }
-    setLoading(true); setError(false)
-    cachedFetch<any>('/api/defi', stableAddress, force)
-      .then(data => {
-        const all: any[] = data.positions ?? []
-        const top3 = [...all]
-          .filter(p => (p.netValueUSD ?? 0) > 0)
-          .sort((a, b) => (b.netValueUSD ?? 0) - (a.netValueUSD ?? 0))
-          .slice(0, 3)
-        setPositions(top3)
-        setTotal(all.reduce((s, p) => s + (p.netValueUSD ?? 0), 0))
-      })
-      .catch(() => setError(true))
-      .finally(() => setLoading(false))
-  }, [stableAddress])
-
-  useEffect(() => { loadDefi() }, [loadDefi])
-
-  // Type label formatter
-  function typeLabel(type: string) {
-    if (type === 'lending')   return 'Lending'
-    if (type === 'vault')     return 'Vault'
-    if (type === 'liquidity') return 'Liquidity'
-    return type
-  }
-
-  // APY from position — lending has supply[0].apy, vault has .apy, liquidity has .apy
-  function getApy(pos: any): number | null {
-    if (pos.apy != null && pos.apy > 0)         return pos.apy
-    if (pos.supply?.[0]?.apy != null)            return pos.supply[0].apy
-    return null
-  }
+  const loading = status === 'loading'
+  const all     = totals.defiPositions
+  const top3    = [...all]
+    .filter(p => (p.netValueUSD ?? 0) > 0)
+    .sort((a, b) => (b.netValueUSD ?? 0) - (a.netValueUSD ?? 0))
+    .slice(0, 3)
+  const total = all.reduce((s, p) => s + (p.netValueUSD ?? 0), 0)
 
   return (
     <div className="card p-5">
@@ -199,7 +174,7 @@ function DeFiPositions() {
         <div className="flex items-center gap-2">
           {isConnected && (
             <button
-              onClick={() => loadDefi(true)}
+              onClick={refresh}
               disabled={loading}
               className="p-1 rounded-md text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40"
               title="Refresh DeFi positions"
@@ -248,7 +223,7 @@ function DeFiPositions() {
       )}
 
       {/* No positions found */}
-      {isConnected && !loading && positions.length === 0 && (
+      {isConnected && !loading && top3.length === 0 && (
         <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
           <p className="text-sm text-gray-400">No DeFi positions found</p>
           <p className="text-xs text-gray-300">Your active positions will appear here</p>
@@ -256,9 +231,9 @@ function DeFiPositions() {
       )}
 
       {/* Top 3 real positions */}
-      {isConnected && !loading && positions.length > 0 && (
+      {isConnected && !loading && top3.length > 0 && (
         <div className="space-y-4">
-          {positions.map((pos, i) => {
+          {top3.map((pos, i) => {
             const value      = pos.netValueUSD ?? 0
             const apy        = getApy(pos)
             const percentage = total > 0 ? (value / total) * 100 : 0

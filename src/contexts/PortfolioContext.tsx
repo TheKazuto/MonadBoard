@@ -27,6 +27,7 @@ export interface PortfolioTotals {
   defiActiveProtocols: string[]
   defiTotalDebtUSD:    number
   defiTotalSupplyUSD:  number
+  defiPositions:       any[]   // raw positions array — consumed by DeFiPositions widget
 }
 
 export type LoadStatus = 'idle' | 'loading' | 'partial' | 'done' | 'error'
@@ -46,6 +47,7 @@ const ZERO: PortfolioTotals = {
   defiActiveProtocols: [],
   defiTotalDebtUSD:    0,
   defiTotalSupplyUSD:  0,
+  defiPositions:       [],
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
@@ -79,7 +81,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
   // Refs for parallel fetch accumulation
   const tokenRef      = useRef(0)
   const nftRef        = useRef(0)
-  const defiRef       = useRef<Partial<PortfolioTotals>>({})
+  const defiRef       = useRef<Partial<PortfolioTotals> & { defiPositions?: any[] }>({})
   const loadingAddr   = useRef<string | null>(null)
 
   const flush = useCallback((addr: string) => {
@@ -94,6 +96,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
       defiActiveProtocols: defiRef.current.defiActiveProtocols ?? [],
       defiTotalDebtUSD:    defiRef.current.defiTotalDebtUSD    ?? 0,
       defiTotalSupplyUSD:  defiRef.current.defiTotalSupplyUSD  ?? 0,
+      defiPositions:       defiRef.current.defiPositions       ?? [],
     }
     setTotals(next)
     // Keep cache updated with latest partial data
@@ -125,6 +128,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
         defiTotalDebtUSD:    entry.totals.defiTotalDebtUSD,
         defiTotalSupplyUSD:  entry.totals.defiTotalSupplyUSD,
         defiActiveProtocols: entry.totals.defiActiveProtocols,
+        defiPositions:       entry.totals.defiPositions,
       }
       setTotals(entry.totals)
     } else {
@@ -165,6 +169,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
           defiTotalDebtUSD:    Number(s.totalDebtUSD    ?? 0),
           defiTotalSupplyUSD:  Number(s.totalSupplyUSD  ?? 0),
           defiActiveProtocols: Array.isArray(s.activeProtocols) ? s.activeProtocols : [],
+          defiPositions:       Array.isArray(data.positions) ? data.positions : [],
         }
         flush(addr)
         setStatus(s2 => s2 === 'loading' ? 'partial' : s2)
