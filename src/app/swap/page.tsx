@@ -6,8 +6,8 @@ import {
   CheckCircle, XCircle, Loader, ExternalLink, Search, X
 } from 'lucide-react'
 import { useWallet } from '@/contexts/WalletContext'
-import { useSendTransaction } from 'wagmi'
-import { encodeFunctionData } from 'viem'
+import { useSendTransaction, useBalance } from 'wagmi'
+import { encodeFunctionData, formatUnits } from 'viem'
 
 // ─── INTEGRATOR CONFIG ────────────────────────────────────────────────────────
 const FEE_RECEIVER = '0xYOUR_WALLET_ADDRESS_HERE'
@@ -508,6 +508,36 @@ export default function SwapPage() {
   const [txError,  setTxError]  = useState<string | null>(null)
 
   const [modal, setModal] = useState<'fromToken' | 'toToken' | 'fromChain' | 'toChain' | null>(null)
+
+  // ── Token balance ──────────────────────────────────────────────────────────
+  const isNativeFrom = fromToken.address === NATIVE
+  const { data: nativeBalance }  = useBalance({
+    address: address as `0x${string}` | undefined,
+    query: { enabled: !!address && isNativeFrom },
+  })
+  const { data: erc20Balance } = useBalance({
+    address: address as `0x${string}` | undefined,
+    token: (!isNativeFrom ? fromToken.address : undefined) as `0x${string}` | undefined,
+    query: { enabled: !!address && !isNativeFrom },
+  })
+  const rawBalance = isNativeFrom ? nativeBalance : erc20Balance
+  const fromBalanceFormatted = rawBalance
+    ? Number(formatUnits(rawBalance.value, rawBalance.decimals))
+    : null
+  const fromBalanceDisplay = fromBalanceFormatted !== null
+    ? fromBalanceFormatted < 0.0001 && fromBalanceFormatted > 0
+      ? '<0.0001'
+      : fromBalanceFormatted.toLocaleString('en-US', { maximumFractionDigits: 6 })
+    : null
+
+  function handleMax() {
+    if (fromBalanceFormatted === null) return
+    // For native tokens, leave a small buffer for gas
+    const maxAmt = isNativeFrom
+      ? Math.max(0, fromBalanceFormatted - 0.001)
+      : fromBalanceFormatted
+    setAmount(maxAmt > 0 ? String(maxAmt) : '')
+  }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { sendTransactionAsync } = useSendTransaction()
 
@@ -627,9 +657,24 @@ export default function SwapPage() {
               <span className="font-semibold text-gray-800 text-sm">{fromToken.symbol}</span>
               <ChevronDown size={13} className="text-gray-400" />
             </button>
-            <input type="number" min="0" placeholder="0.00" value={amount}
-              onChange={e => setAmount(e.target.value)}
-              className="flex-1 bg-transparent text-right text-2xl font-semibold text-gray-800 outline-none placeholder-gray-300 min-w-0" />
+            <div className="flex-1 flex flex-col items-end gap-1 min-w-0">
+              <input type="number" min="0" placeholder="0.00" value={amount}
+                onChange={e => setAmount(e.target.value)}
+                className="w-full bg-transparent text-right text-2xl font-semibold text-gray-800 outline-none placeholder-gray-300" />
+              {isConnected && fromBalanceDisplay !== null && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-400">
+                    Balance: <span className="text-gray-500 font-medium">{fromBalanceDisplay} {fromToken.symbol}</span>
+                  </span>
+                  <button
+                    onClick={handleMax}
+                    className="text-xs font-semibold text-violet-500 hover:text-violet-700 bg-violet-50 hover:bg-violet-100 px-1.5 py-0.5 rounded transition-colors"
+                  >
+                    MAX
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
