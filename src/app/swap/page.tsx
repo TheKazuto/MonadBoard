@@ -807,7 +807,7 @@ export default function SwapPage() {
                 </span>
               </div>
             )}
-            {(quote.fees?.gasTokenFees?.protocol?.fixedUsdAmount ?? 0) > 0 && (
+            {isCrossChain && (quote.fees?.gasTokenFees?.protocol?.fixedUsdAmount ?? 0) > 0 && (
               <div className="flex justify-between px-4 py-2.5">
                 <span className="text-gray-500">Protocol fee</span>
                 <span className="font-medium text-gray-700">${quote.fees.gasTokenFees.protocol.fixedUsdAmount.toFixed(2)}</span>
