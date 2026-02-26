@@ -29,7 +29,7 @@ export default function Navbar() {
             <Zap size={16} className="text-white" fill="white" />
           </div>
           <span style={{ fontFamily: 'Sora, sans-serif', fontWeight: 700, color: '#200052', fontSize: '1.125rem' }}>
-            Monad<span style={{ color: '#836EF9' }}>Board</span>
+            Mon<span style={{ color: '#836EF9' }}>board</span>
           </span>
         </Link>
 
