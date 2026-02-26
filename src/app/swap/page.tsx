@@ -330,13 +330,17 @@ async function loadChains(): Promise<Chain[]> {
 interface Quote {
   id: string
   estimate: {
-    destinationTokenAmount: string
+    destinationTokenAmount: string   // may be human-readable OR wei — we handle both
     destinationUsdAmount: number
     durationInMinutes: number
     priceImpact: number | null
   }
   fees: { gasTokenFees: { protocol: { fixedUsdAmount: number } } }
-  provider: string
+  // Rubic v2 uses different field names depending on route type
+  provider?:     string   // on-chain routes
+  type?:         string   // alternative field name
+  providerType?: string   // another alternative
+  tradeType?:    string   // yet another alternative
 }
 
 async function fetchQuote(
@@ -354,7 +358,10 @@ async function fetchQuote(
     }),
   })
   if (!res.ok) throw new Error(`${res.status}`)
-  return res.json()
+  const data = await res.json()
+  // Log raw response so we can verify field names in browser console
+  console.debug('[Rubic quoteBest]', JSON.stringify(data, null, 2))
+  return data
 }
 
 async function fetchSwapTx(
@@ -671,9 +678,20 @@ export default function SwapPage() {
     }
   }
 
-  const dstAmount = quote
-    ? (Number(quote.estimate.destinationTokenAmount) / Math.pow(10, toToken.decimals)).toFixed(6)
-    : ''
+  const dstAmount = (() => {
+    if (!quote) return ''
+    const raw = Number(quote.estimate.destinationTokenAmount)
+    if (isNaN(raw) || raw === 0) return '0'
+    const decimals = toToken.decimals ?? 18
+    // Rubic sometimes returns wei (very large number), sometimes human-readable
+    // Heuristic: if raw > 1e10 it's almost certainly wei
+    const human = raw > 1e10 ? raw / Math.pow(10, decimals) : raw
+    // Format nicely: many decimals for small values, fewer for large
+    if (human >= 1000)  return human.toLocaleString('en-US', { maximumFractionDigits: 2 })
+    if (human >= 1)     return human.toFixed(4)
+    if (human >= 0.001) return human.toFixed(6)
+    return human.toExponential(4)
+  })()
   const isCrossChain = fromChain.name !== toChain.name
   const canSwap = isConnected && !!quote && !!amount && txStatus === 'idle'
 
@@ -816,7 +834,8 @@ export default function SwapPage() {
             <div className="flex justify-between px-4 py-2.5">
               <span className="text-gray-500">Route</span>
               <span className="font-medium text-violet-600 capitalize">
-                {quote.provider?.replace(/_/g, ' ').toLowerCase()}
+                {(quote.provider ?? quote.type ?? quote.providerType ?? quote.tradeType ?? '—')
+                  .replace(/_/g, ' ').replace(/-/g, ' ').toLowerCase()}
               </span>
             </div>
           </div>
