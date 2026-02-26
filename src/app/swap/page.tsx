@@ -597,10 +597,10 @@ export default function SwapPage() {
   const { switchChain } = useSwitchChain()
 
   const [chains, setChains] = useState<Chain[]>([])
-  const [fromChain, setFromChain] = useState<Chain>(ETH_CHAIN)
-  const [toChain,   setToChain]   = useState<Chain>(MONAD_CHAIN)
-  const [fromToken, setFromToken] = useState<Token>(NATIVE_TOKENS.ETH)
-  const [toToken,   setToToken]   = useState<Token>(NATIVE_TOKENS.MONAD)
+  const [fromChain, setFromChain] = useState<Chain>(MONAD_CHAIN)
+  const [toChain,   setToChain]   = useState<Chain>(ETH_CHAIN)
+  const [fromToken, setFromToken] = useState<Token>(NATIVE_TOKENS.MONAD)
+  const [toToken,   setToToken]   = useState<Token>(NATIVE_TOKENS.ETH)
   const [amount,    setAmount]    = useState('')
   const [receiver,  setReceiver]  = useState('')
 
