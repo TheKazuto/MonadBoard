@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   ArrowLeftRight, ChevronDown, RefreshCw, Info,
   CheckCircle, XCircle, Loader, ExternalLink, Search, X
@@ -273,7 +273,7 @@ async function loadTokensForChain(chainName: string): Promise<Token[]> {
   if (!platform) {
     // Chain not mapped yet — return just native token
     const result = native ? [native] : []
-    tokenListCache[chainName] = result
+    tokenListCache[chainName] = { tokens: result, ts: Date.now() }
     return result
   }
 
@@ -299,14 +299,18 @@ async function loadTokensForChain(chainName: string): Promise<Token[]> {
 }
 
 // Fetch all supported chains from Rubic
+// Module-level cache — list is static per session, no need to re-fetch on navigation
+let cachedChains: Chain[] | null = null
+
 async function loadChains(): Promise<Chain[]> {
+  if (cachedChains) return cachedChains
   try {
     const res = await fetch('https://api-v2.rubic.exchange/api/info/chains?includeTestnets=false')
     if (!res.ok) throw new Error('failed')
     const data: Chain[] = await res.json()
     // Filter to EVM + Solana, exclude testnets, sort by familiarity
     const priority = ['ETH','BSC','POLYGON','ARBITRUM','OPTIMISM','BASE','AVALANCHE','MONAD','SOLANA','FANTOM']
-    return data
+    cachedChains = data
       .filter(c => !c.name.includes('TEST') && ['EVM','SOLANA','TON','BITCOIN'].includes(c.type))
       .sort((a, b) => {
         const ai = priority.indexOf(a.name)
@@ -316,8 +320,9 @@ async function loadChains(): Promise<Chain[]> {
         if (bi !== -1) return 1
         return a.name.localeCompare(b.name)
       })
+    return cachedChains
   } catch {
-    // Fallback to minimal list
+    // Fallback to minimal list — do NOT cache fallback so next mount can retry
     return [
       { id: 1, name: 'ETH', type: 'EVM' },
       { id: 56, name: 'BSC', type: 'EVM' },
@@ -351,22 +356,33 @@ interface Quote {
   tradeType?:    string   // yet another alternative
 }
 
+// ── Shared fee payload — evaluated once at module load ───────────────────────
+const FEE_PARTS = FEE_RECEIVER ? { fee: FEE_PERCENT, feeTarget: FEE_RECEIVER } : {}
+
+// Builds the common fields shared by both quoteBest and swap endpoints
+function buildRubicBody(
+  srcChain: string, srcToken: Token, srcAmount: string,
+  dstChain: string, dstToken: Token,
+) {
+  const isCross = srcChain !== dstChain
+  return {
+    srcTokenAddress: srcToken.address, srcTokenBlockchain: srcChain,
+    srcTokenAmount: srcAmount,
+    dstTokenAddress: dstToken.address, dstTokenBlockchain: dstChain,
+    referrer: REFERRER,
+    ...FEE_PARTS,
+    slippageTolerance: isCross ? SLIPPAGE_CROSS : SLIPPAGE_ON_CHAIN,
+  }
+}
+
 async function fetchQuote(
   srcChain: string, srcToken: Token, srcAmount: string,
   dstChain: string, dstToken: Token,
 ): Promise<Quote> {
-  const isCross = srcChain !== dstChain
   const res = await fetch('https://api-v2.rubic.exchange/api/routes/quoteBest', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      srcTokenAddress: srcToken.address, srcTokenBlockchain: srcChain,
-      srcTokenAmount: srcAmount,
-      dstTokenAddress: dstToken.address, dstTokenBlockchain: dstChain,
-      referrer: REFERRER,
-      ...(FEE_RECEIVER ? { fee: FEE_PERCENT, feeTarget: FEE_RECEIVER } : {}),
-      slippageTolerance: isCross ? SLIPPAGE_CROSS : SLIPPAGE_ON_CHAIN,
-    }),
+    body: JSON.stringify(buildRubicBody(srcChain, srcToken, srcAmount, dstChain, dstToken)),
   })
   if (!res.ok) throw new Error(`${res.status}`)
   return res.json()
@@ -381,12 +397,7 @@ async function fetchSwapTx(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      srcTokenAddress: srcToken.address, srcTokenBlockchain: srcChain,
-      srcTokenAmount: srcAmount,
-      dstTokenAddress: dstToken.address, dstTokenBlockchain: dstChain,
-      referrer: REFERRER,
-      ...(FEE_RECEIVER ? { fee: FEE_PERCENT, feeTarget: FEE_RECEIVER } : {}),
-      slippageTolerance: srcChain !== dstChain ? SLIPPAGE_CROSS : SLIPPAGE_ON_CHAIN,
+      ...buildRubicBody(srcChain, srcToken, srcAmount, dstChain, dstToken),
       fromAddress, id: quoteId, receiver,
     }),
   })
@@ -401,6 +412,8 @@ const ERC20_APPROVE_ABI = [{
 }] as const
 
 type TxStatus = 'idle' | 'approving' | 'swapping' | 'pending' | 'success' | 'error'
+
+const QUOTE_EXPIRY = 60  // seconds before a quote is considered stale
 
 // ─── CHAIN SELECTOR MODAL ─────────────────────────────────────────────────────
 function ChainModal({ chains, onSelect, onClose }: {
@@ -580,7 +593,6 @@ const CHAIN_EXPLORER: Record<string, string> = {
   MOONRIVER: 'https://moonriver.moonscan.io/tx',
   FUSE:      'https://explorer.fuse.io/tx',
   KAVA:      'https://explorer.kava.io/tx',
-  BSC:       'https://bscscan.com/tx',
 }
 
 // Rubic chain name → EVM chain ID (for wagmi chain switching)
@@ -626,16 +638,17 @@ export default function SwapPage() {
   const [quoteAge,   setQuoteAge]   = useState(0)   // seconds since last quote
   const [receiverError, setReceiverError] = useState<string | null>(null)
 
-  function validateReceiver(val: string): boolean {
+  const validateReceiver = useCallback((val: string): boolean => {
     if (!val.trim()) return true  // empty = use sender wallet, always valid
     // EVM address: 0x + 40 hex chars. Solana: base58 32-44 chars (handled loosely)
-    const isEVM  = /^0x[0-9a-fA-F]{40}$/.test(val.trim())
-    const isSol  = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(val.trim())
-    const valid  = isEVM || (toChain.type === 'SOLANA' ? isSol : false)
+    const isEVM = /^0x[0-9a-fA-F]{40}$/.test(val.trim())
+    const isSol = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(val.trim())
+    const valid = isEVM || (toChain.type === 'SOLANA' ? isSol : false)
     setReceiverError(valid ? null : 'Invalid address format')
     return valid
-  }
-  const quoteAgeRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  }, [toChain.type])
+  const quoteAgeRef    = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pollCleanupRef = useRef<(() => void) | null>(null)
 
   // ── Token balance via RPC (works for any chain, no wagmi dependency) ────────
   const [fromBalance, setFromBalance] = useState<number | null>(null)
@@ -704,13 +717,8 @@ export default function SwapPage() {
 
   // Cancel any in-flight status poll when component unmounts
   useEffect(() => {
-    return () => {
-      const cleanup = (window as any).__swapPollCleanup
-      if (typeof cleanup === 'function') { cleanup(); delete (window as any).__swapPollCleanup }
-    }
+    return () => { pollCleanupRef.current?.() }
   }, [])
-
-  const QUOTE_EXPIRY = 60  // seconds before quote is considered stale
 
   // Quote age ticker — runs while a quote is active
   useEffect(() => {
@@ -785,8 +793,7 @@ export default function SwapPage() {
       let pollTimer: ReturnType<typeof setTimeout> | null = null
       let cancelled = false
       const stopPoll = () => { cancelled = true; if (pollTimer) clearTimeout(pollTimer) }
-      // Store cleanup on the window so executeSwap's outer scope can call it on unmount
-      ;(window as any).__swapPollCleanup = stopPoll
+      pollCleanupRef.current = stopPoll
       const poll = async () => {
         if (cancelled) return
         try {
@@ -806,7 +813,7 @@ export default function SwapPage() {
     }
   }
 
-  const dstAmount = (() => {
+  const dstAmount = useMemo(() => {
     if (!quote) return ''
     const raw = Number(quote.estimate.destinationTokenAmount)
     if (isNaN(raw) || raw === 0) return '0'
@@ -830,7 +837,7 @@ export default function SwapPage() {
     if (human >= 1)     return human.toFixed(4)
     if (human >= 0.001) return human.toFixed(6)
     return human.toExponential(4)
-  })()
+  }, [quote, toToken.decimals])
   const isCrossChain   = fromChain.name !== toChain.name
   const expectedChainId = CHAIN_ID[fromChain.name]
   const wrongChain = isConnected && !!expectedChainId && connectedChainId !== expectedChainId
