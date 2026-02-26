@@ -6,6 +6,7 @@ import RecentActivity from '@/components/RecentActivity'
 import FearAndGreed from '@/components/FearAndGreed'
 import TokenExposure from '@/components/TokenExposure'
 import PortfolioHistory from '@/components/PortfolioHistory'
+import AdBanner from '@/components/AdBanner'
 import { cachedFetch, getCached } from '@/lib/dataCache'
 import { usePortfolio } from '@/contexts/PortfolioContext'
 import { useWallet }    from '@/contexts/WalletContext'
@@ -350,9 +351,11 @@ export default function Dashboard() {
       <NFTGatingBanner />
 
       {/* Hero Row: Wallet Summary + Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-        <div className="lg:col-span-3">
+      {/* Left col is flex-col so AdBanner stretches to fill the gap below WalletSummary */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 lg:items-stretch">
+        <div className="lg:col-span-3 flex flex-col gap-5">
           <WalletSummary />
+          <AdBanner className="flex-1 rounded-xl" />
         </div>
         <div className="lg:col-span-2">
           <RecentActivity />
@@ -368,10 +371,14 @@ export default function Dashboard() {
       {/* Portfolio History Chart */}
       <PortfolioHistory />
 
-      {/* Bottom Row: Top Tokens + Fear & Greed */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+      {/* Bottom Row: Top Tokens + Fear & Greed + Ad */}
+      {/* Right col is flex-col so AdBanner stretches to fill space below Fear & Greed */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 lg:items-stretch">
         <div className="lg:col-span-2"><TopTokens /></div>
-        <div className="lg:col-span-1"><FearAndGreed /></div>
+        <div className="lg:col-span-1 flex flex-col gap-5">
+          <FearAndGreed />
+          <AdBanner className="flex-1 rounded-xl" />
+        </div>
       </div>
 
       <SponsorsBanner />
