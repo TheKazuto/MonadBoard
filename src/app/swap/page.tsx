@@ -6,7 +6,7 @@ import {
   CheckCircle, XCircle, Loader, ExternalLink, Search, X
 } from 'lucide-react'
 import { useWallet } from '@/contexts/WalletContext'
-import { useSendTransaction } from 'wagmi'
+import { useSendTransaction, useChainId, useSwitchChain } from 'wagmi'
 import { encodeFunctionData } from 'viem'
 
 // ─── INTEGRATOR CONFIG ────────────────────────────────────────────────────────
@@ -257,11 +257,13 @@ function TokenImage({
 }
 
 // ─── API HELPERS ──────────────────────────────────────────────────────────────
-// Cache for token lists — avoid re-fetching same chain
-const tokenListCache: Record<string, Token[]> = {}
+// Cache for token lists with TTL — avoid re-fetching same chain within session
+const TOKEN_CACHE_TTL = 5 * 60 * 1000  // 5 minutes
+const tokenListCache: Record<string, { tokens: Token[]; ts: number }> = {}
 
 async function loadTokensForChain(chainName: string): Promise<Token[]> {
-  if (tokenListCache[chainName]) return tokenListCache[chainName]
+  const cached = tokenListCache[chainName]
+  if (cached && Date.now() - cached.ts < TOKEN_CACHE_TTL) return cached.tokens
 
   const native = NATIVE_TOKENS[chainName]
   const platform = COINGECKO_PLATFORM[chainName]
@@ -285,11 +287,11 @@ async function loadTokensForChain(chainName: string): Promise<Token[]> {
     }))
 
     const result = native ? [native, ...tokens] : tokens
-    tokenListCache[chainName] = result
+    tokenListCache[chainName] = { tokens: result, ts: Date.now() }
     return result
   } catch {
     const result = native ? [native] : []
-    tokenListCache[chainName] = result
+    tokenListCache[chainName] = { tokens: result, ts: Date.now() }
     return result
   }
 }
@@ -327,6 +329,10 @@ async function loadChains(): Promise<Chain[]> {
   }
 }
 
+// Default slippage tolerance per swap type (in %)
+const SLIPPAGE_ON_CHAIN  = 1    // 1% for same-chain DEX swaps
+const SLIPPAGE_CROSS     = 2    // 2% for cross-chain bridges
+
 interface Quote {
   id: string
   estimate: {
@@ -347,6 +353,7 @@ async function fetchQuote(
   srcChain: string, srcToken: Token, srcAmount: string,
   dstChain: string, dstToken: Token,
 ): Promise<Quote> {
+  const isCross = srcChain !== dstChain
   const res = await fetch('https://api-v2.rubic.exchange/api/routes/quoteBest', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -355,13 +362,11 @@ async function fetchQuote(
       srcTokenAmount: srcAmount,
       dstTokenAddress: dstToken.address, dstTokenBlockchain: dstChain,
       referrer: REFERRER, fee: FEE_PERCENT, feeTarget: FEE_RECEIVER,
+      slippageTolerance: isCross ? SLIPPAGE_CROSS : SLIPPAGE_ON_CHAIN,
     }),
   })
   if (!res.ok) throw new Error(`${res.status}`)
-  const data = await res.json()
-  // Log raw response so we can verify field names in browser console
-  console.debug('[Rubic quoteBest]', JSON.stringify(data, null, 2))
-  return data
+  return res.json()
 }
 
 async function fetchSwapTx(
@@ -377,6 +382,7 @@ async function fetchSwapTx(
       srcTokenAmount: srcAmount,
       dstTokenAddress: dstToken.address, dstTokenBlockchain: dstChain,
       referrer: REFERRER, fee: FEE_PERCENT, feeTarget: FEE_RECEIVER,
+      slippageTolerance: srcChain !== dstChain ? SLIPPAGE_CROSS : SLIPPAGE_ON_CHAIN,
       fromAddress, id: quoteId, receiver,
     }),
   })
@@ -493,6 +499,32 @@ function TokenModal({ chainName, onSelect, onClose }: {
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 // Public RPC endpoints per Rubic chain name (client-side balance fetching)
+// Gas buffer per chain for MAX button (in native token units)
+// Conservative estimate based on typical gas cost at normal gas prices
+const CHAIN_GAS_BUFFER: Record<string, number> = {
+  ETH:       0.003,   // ~$9 @ $3000 ETH — covers complex DEX swaps
+  ARBITRUM:  0.001,   // ~$3 — L2, cheaper
+  OPTIMISM:  0.001,
+  BASE:      0.001,
+  ZKSYNC:    0.001,
+  LINEA:     0.001,
+  SCROLL:    0.001,
+  BLAST:     0.001,
+  MANTLE:    0.5,     // MNT is cheap
+  BSC:       0.003,   // BNB ~$0.90
+  POLYGON:   0.5,     // POL/MATIC is cheap
+  AVALANCHE: 0.01,    // AVAX ~$0.40
+  FANTOM:    1.0,     // FTM is cheap
+  CRONOS:    0.5,
+  GNOSIS:    0.1,
+  CELO:      0.05,
+  MOONBEAM:  0.05,
+  MOONRIVER: 0.05,
+  METIS:     0.005,
+  MONAD:     0.01,    // MON — conservative
+  SOLANA:    0.01,    // SOL — ~$0.002 fees
+}
+
 const CHAIN_RPC: Record<string, string> = {
   ETH:       'https://ethereum-rpc.publicnode.com',
   BSC:       'https://bsc-rpc.publicnode.com',
@@ -519,11 +551,50 @@ const CHAIN_RPC: Record<string, string> = {
   KAVA:      'https://evm.kava.io',
 }
 
+// Block explorer tx URL per chain
+const CHAIN_EXPLORER: Record<string, string> = {
+  ETH:       'https://etherscan.io/tx',
+  BSC:       'https://bscscan.com/tx',
+  POLYGON:   'https://polygonscan.com/tx',
+  ARBITRUM:  'https://arbiscan.io/tx',
+  OPTIMISM:  'https://optimistic.etherscan.io/tx',
+  BASE:      'https://basescan.org/tx',
+  AVALANCHE: 'https://snowtrace.io/tx',
+  MONAD:     'https://monadexplorer.com/tx',
+  SOLANA:    'https://solscan.io/tx',
+  FANTOM:    'https://ftmscan.com/tx',
+  GNOSIS:    'https://gnosisscan.io/tx',
+  LINEA:     'https://lineascan.build/tx',
+  SCROLL:    'https://scrollscan.com/tx',
+  MANTLE:    'https://explorer.mantle.xyz/tx',
+  BLAST:     'https://blastscan.io/tx',
+  ZKSYNC:    'https://explorer.zksync.io/tx',
+  CRONOS:    'https://cronoscan.com/tx',
+  METIS:     'https://andromeda-explorer.metis.io/tx',
+  CELO:      'https://celoscan.io/tx',
+  MOONBEAM:  'https://moonscan.io/tx',
+  MOONRIVER: 'https://moonriver.moonscan.io/tx',
+  FUSE:      'https://explorer.fuse.io/tx',
+  KAVA:      'https://explorer.kava.io/tx',
+  BSC:       'https://bscscan.com/tx',
+}
+
+// Rubic chain name → EVM chain ID (for wagmi chain switching)
+const CHAIN_ID: Record<string, number> = {
+  ETH: 1, BSC: 56, POLYGON: 137, ARBITRUM: 42161, OPTIMISM: 10,
+  BASE: 8453, AVALANCHE: 43114, MONAD: 143, FANTOM: 250,
+  GNOSIS: 100, CELO: 42220, LINEA: 59144, SCROLL: 534352,
+  MANTLE: 5000, BLAST: 81457, ZKSYNC: 324, CRONOS: 25,
+  MOONBEAM: 1284, MOONRIVER: 1285, METIS: 1088, FUSE: 122, KAVA: 2222,
+}
+
 const ETH_CHAIN: Chain = { id: 1, name: 'ETH', type: 'EVM' }
 const MONAD_CHAIN: Chain = { id: 143, name: 'MONAD', type: 'EVM' }
 
 export default function SwapPage() {
   const { address, isConnected } = useWallet()
+  const connectedChainId = useChainId()
+  const { switchChain } = useSwitchChain()
 
   const [chains, setChains] = useState<Chain[]>([])
   const [fromChain, setFromChain] = useState<Chain>(ETH_CHAIN)
@@ -542,6 +613,19 @@ export default function SwapPage() {
   const [txError,  setTxError]  = useState<string | null>(null)
 
   const [modal, setModal] = useState<'fromToken' | 'toToken' | 'fromChain' | 'toChain' | null>(null)
+  const [quoteAge,   setQuoteAge]   = useState(0)   // seconds since last quote
+  const [receiverError, setReceiverError] = useState<string | null>(null)
+
+  function validateReceiver(val: string): boolean {
+    if (!val.trim()) return true  // empty = use sender wallet, always valid
+    // EVM address: 0x + 40 hex chars. Solana: base58 32-44 chars (handled loosely)
+    const isEVM  = /^0x[0-9a-fA-F]{40}$/.test(val.trim())
+    const isSol  = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(val.trim())
+    const valid  = isEVM || (toChain.type === 'SOLANA' ? isSol : false)
+    setReceiverError(valid ? null : 'Invalid address format')
+    return valid
+  }
+  const quoteAgeRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Token balance via RPC (works for any chain, no wagmi dependency) ────────
   const [fromBalance, setFromBalance] = useState<number | null>(null)
@@ -598,7 +682,8 @@ export default function SwapPage() {
   function handleMax() {
     if (fromBalance === null) return
     const isNative = fromToken.address === NATIVE
-    const maxAmt = isNative ? Math.max(0, fromBalance - 0.001) : fromBalance
+    const buffer = isNative ? (CHAIN_GAS_BUFFER[fromChain.name] ?? 0.002) : 0
+    const maxAmt = Math.max(0, fromBalance - buffer)
     setAmount(maxAmt > 0 ? maxAmt.toString() : '')
   }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -606,6 +691,30 @@ export default function SwapPage() {
 
   // Load chain list on mount
   useEffect(() => { loadChains().then(setChains) }, [])
+
+  // Cancel any in-flight status poll when component unmounts
+  useEffect(() => {
+    return () => {
+      const cleanup = (window as any).__swapPollCleanup
+      if (typeof cleanup === 'function') { cleanup(); delete (window as any).__swapPollCleanup }
+    }
+  }, [])
+
+  const QUOTE_EXPIRY = 60  // seconds before quote is considered stale
+
+  // Quote age ticker — runs while a quote is active
+  useEffect(() => {
+    if (quote) {
+      setQuoteAge(0)
+      quoteAgeRef.current = setInterval(() => setQuoteAge(a => a + 1), 1000)
+    } else {
+      if (quoteAgeRef.current) clearInterval(quoteAgeRef.current)
+      setQuoteAge(0)
+    }
+    return () => { if (quoteAgeRef.current) clearInterval(quoteAgeRef.current) }
+  }, [quote])
+
+  const quoteExpired = quoteAge >= QUOTE_EXPIRY
 
   // Quote with debounce
   const getQuote = useCallback(async (amt: string) => {
@@ -632,10 +741,13 @@ export default function SwapPage() {
   }
 
   async function executeSwap() {
-    if (!address || !quote || !amount) return
-    setTxStatus('swapping'); setTxError(null)
+    if (!address || !quote || !amount || quoteExpired) return
+    if (receiver.trim() && !validateReceiver(receiver)) return
+    setTxStatus('idle'); setTxError(null)
     try {
       const recv = receiver.trim() || address
+      // Fetch tx data first (determines if approval is needed) before changing status
+      setTxStatus('swapping')
       const { transaction } = await fetchSwapTx(
         fromChain.name, fromToken, amount,
         toChain.name, toToken,
@@ -660,7 +772,13 @@ export default function SwapPage() {
       })
       setTxHash(hash); setTxStatus('pending')
       let attempts = 0
+      let pollTimer: ReturnType<typeof setTimeout> | null = null
+      let cancelled = false
+      const stopPoll = () => { cancelled = true; if (pollTimer) clearTimeout(pollTimer) }
+      // Store cleanup on the window so executeSwap's outer scope can call it on unmount
+      ;(window as any).__swapPollCleanup = stopPoll
       const poll = async () => {
+        if (cancelled) return
         try {
           const r = await fetch(`https://api-v2.rubic.exchange/api/info/status?srcTxHash=${hash}`)
           const d = await r.json()
@@ -669,7 +787,7 @@ export default function SwapPage() {
             setTxStatus('error'); setTxError('Transaction reverted on-chain'); return
           }
         } catch {}
-        if (attempts++ < 40) setTimeout(poll, 5000)
+        if (!cancelled && attempts++ < 40) pollTimer = setTimeout(poll, 5000)
       }
       poll()
     } catch (e: any) {
@@ -683,17 +801,30 @@ export default function SwapPage() {
     const raw = Number(quote.estimate.destinationTokenAmount)
     if (isNaN(raw) || raw === 0) return '0'
     const decimals = toToken.decimals ?? 18
-    // Rubic sometimes returns wei (very large number), sometimes human-readable
-    // Heuristic: if raw > 1e10 it's almost certainly wei
-    const human = raw > 1e10 ? raw / Math.pow(10, decimals) : raw
-    // Format nicely: many decimals for small values, fewer for large
+    // Use BigInt for wei values to avoid JS Number precision loss (> 2^53)
+    // Detect wei: if string has no decimal point AND integer value > 10^(dec-8)
+    const rawStr = String(quote.estimate.destinationTokenAmount).trim()
+    const isWei = !rawStr.includes('.') && raw > Math.pow(10, Math.max(0, decimals - 8))
+    let human: number
+    if (isWei) {
+      // Safe BigInt division preserving up to 8 significant decimal places
+      const bigRaw  = BigInt(rawStr)
+      const bigDiv  = BigInt(10 ** Math.max(0, decimals - 8))
+      const shifted = Number(bigRaw / bigDiv)
+      human = shifted / 1e8
+    } else {
+      human = raw
+    }
+    // Format nicely: fewer decimals for large values, more for small
     if (human >= 1000)  return human.toLocaleString('en-US', { maximumFractionDigits: 2 })
     if (human >= 1)     return human.toFixed(4)
     if (human >= 0.001) return human.toFixed(6)
     return human.toExponential(4)
   })()
-  const isCrossChain = fromChain.name !== toChain.name
-  const canSwap = isConnected && !!quote && !!amount && txStatus === 'idle'
+  const isCrossChain   = fromChain.name !== toChain.name
+  const expectedChainId = CHAIN_ID[fromChain.name]
+  const wrongChain = isConnected && !!expectedChainId && connectedChainId !== expectedChainId
+  const canSwap = isConnected && !!quote && !quoteExpired && !!amount && txStatus === 'idle' && !wrongChain
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6">
@@ -733,7 +864,10 @@ export default function SwapPage() {
             </button>
             <div className="flex-1 flex flex-col items-end gap-1 min-w-0">
               <input type="number" min="0" placeholder="0.00" value={amount}
-                onChange={e => setAmount(e.target.value)}
+                onChange={e => {
+                  const v = e.target.value
+                  if (v === '' || Number(v) > 0) setAmount(v)
+                }}
                 className="w-full bg-transparent text-right text-2xl font-semibold text-gray-800 outline-none placeholder-gray-300" />
               {isConnected && fromBalanceDisplay !== null && (
                 <div className="flex items-center gap-1.5">
@@ -802,15 +936,34 @@ export default function SwapPage() {
             <label className="text-xs font-medium text-gray-400 uppercase tracking-wide block mb-1.5">
               Receiver <span className="normal-case text-gray-300">(optional, defaults to your wallet)</span>
             </label>
-            <input type="text" value={receiver} onChange={e => setReceiver(e.target.value)}
+            <input type="text" value={receiver}
+              onChange={e => { setReceiver(e.target.value); setReceiverError(null) }}
+              onBlur={e => { if (e.target.value.trim()) validateReceiver(e.target.value) }}
               placeholder={address ?? '0x…'}
-              className="w-full bg-transparent text-sm text-gray-700 outline-none placeholder-gray-300 font-mono" />
+              className={`w-full bg-transparent text-sm outline-none placeholder-gray-300 font-mono ${receiverError ? 'text-red-500' : 'text-gray-700'}`} />
+            {receiverError && <p className="text-xs text-red-400 mt-1">{receiverError}</p>}
           </div>
         )}
 
         {/* Route details */}
         {quote && !quoteLoading && (
-          <div className="rounded-xl border border-violet-100 bg-violet-50/50 divide-y divide-violet-100/60 text-sm">
+          <div className={`rounded-xl border divide-y text-sm ${quoteExpired ? 'border-amber-200 bg-amber-50/60 divide-amber-100/60' : 'border-violet-100 bg-violet-50/50 divide-violet-100/60'}`}>
+            {quoteExpired && (
+              <div className="flex items-center justify-between px-4 py-2.5">
+                <span className="text-amber-600 font-medium text-xs">Quote expired — refresh before swapping</span>
+                <button
+                  onClick={() => getQuote(amount)}
+                  className="flex items-center gap-1 text-xs font-semibold text-violet-600 hover:text-violet-800 bg-white border border-violet-200 px-2 py-1 rounded-lg transition-colors">
+                  <RefreshCw size={11} /> Refresh
+                </button>
+              </div>
+            )}
+            {!quoteExpired && (
+              <div className="flex items-center justify-between px-4 py-2.5">
+                <span className="text-xs text-gray-400">Quote valid for</span>
+                <span className={`text-xs font-medium ${quoteAge > 45 ? 'text-amber-500' : 'text-gray-500'}`}>{Math.max(0, 60 - quoteAge)}s</span>
+              </div>
+            )}
             {quote.estimate.durationInMinutes && (
               <div className="flex justify-between px-4 py-2.5">
                 <span className="text-gray-500">Estimated time</span>
@@ -851,15 +1004,23 @@ export default function SwapPage() {
         {/* CTA */}
         {!isConnected ? (
           <div className="text-center py-2"><p className="text-sm text-gray-400">Connect your wallet to swap</p></div>
+        ) : wrongChain ? (
+          <button
+            onClick={() => expectedChainId && switchChain({ chainId: expectedChainId })}
+            className="w-full py-3.5 rounded-xl font-semibold text-white transition-all duration-200 flex items-center justify-center gap-2"
+            style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', boxShadow: '0 4px 16px rgba(245,158,11,0.35)' }}>
+            Switch to {fromChain.name} network
+          </button>
         ) : txStatus === 'success' ? (
           <div className="flex flex-col items-center gap-2 py-3">
             <div className="flex items-center gap-2 text-emerald-600 font-medium">
               <CheckCircle size={18} /> Swap successful!
             </div>
             {txHash && (
-              <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+              <a href={`${CHAIN_EXPLORER[fromChain.name] ?? 'https://monadexplorer.com/tx'}/${txHash}`}
+                target="_blank" rel="noopener noreferrer"
                 className="text-xs text-violet-500 hover:text-violet-700 flex items-center gap-1">
-                View on explorer <ExternalLink size={11} />
+                View on {fromChain.name} explorer <ExternalLink size={11} />
               </a>
             )}
             <button onClick={() => { setTxStatus('idle'); setTxHash(null); setAmount(''); setQuote(null) }}
@@ -886,7 +1047,7 @@ export default function SwapPage() {
             {txStatus === 'approving' && <><Loader size={16} className="animate-spin" /> Approving…</>}
             {txStatus === 'swapping'  && <><Loader size={16} className="animate-spin" /> Sending…</>}
             {txStatus === 'pending'   && <><Loader size={16} className="animate-spin" /> Confirming…</>}
-            {txStatus === 'idle' && (quoteLoading ? 'Finding best route…' : !amount ? 'Enter an amount' : !quote ? 'No route found' : 'Swap')}
+            {txStatus === 'idle' && (quoteLoading ? 'Finding best route…' : !amount ? 'Enter an amount' : !quote ? 'No route found' : quoteExpired ? 'Quote expired — refresh' : 'Swap')}
           </button>
         )}
       </div>
