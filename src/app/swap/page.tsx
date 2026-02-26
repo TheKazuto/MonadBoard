@@ -66,7 +66,7 @@ const COINGECKO_PLATFORM: Record<string, string> = {
   BLAST:     'blast',
   METIS:     'metis-andromeda',
   ZK_FAIR:   'zkfair',
-  MONAD:     'monad',   // not on CG yet — will use custom fallback
+  MONAD:     'monad',   // served via GeckoTerminal (not CoinGecko token list)
 }
 
 // TrustWallet blockchain slug for chain logo
@@ -151,8 +151,8 @@ async function loadTokensForChain(chainName: string): Promise<Token[]> {
   const native = NATIVE_TOKENS[chainName]
   const platform = COINGECKO_PLATFORM[chainName]
 
-  if (!platform || platform === 'monad') {
-    // Chain not on CoinGecko yet — return just native + known tokens
+  if (!platform) {
+    // Chain not mapped yet — return just native token
     const result = native ? [native] : []
     tokenListCache[chainName] = result
     return result
