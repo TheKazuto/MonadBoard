@@ -40,13 +40,19 @@ export function useTransactions() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-export function classifyType(tx: Transaction, address: string): Transaction['type'] {
+function classifyType(tx: Transaction, address: string): Transaction['type'] {
   const fn = (tx.functionName || '').toLowerCase()
   if (fn.includes('swap') || fn.includes('exchange')) return 'swap'
   if (fn.includes('deposit') || fn.includes('borrow') || fn.includes('supply') || fn.includes('withdraw') || fn.includes('stake')) return 'defi'
   if (fn.includes('mint') || fn.includes('nft') || fn.includes('erc721')) return 'nft'
   if (tx.to && tx.functionName && tx.functionName !== '') return 'contract'
   return tx.from?.toLowerCase() === address.toLowerCase() ? 'send' : 'receive'
+}
+
+export function formatDate(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleDateString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+  })
 }
 
 export function formatTimeAgo(timestamp: number): string {
@@ -103,7 +109,11 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refresh = useCallback(() => {
-    if (address) fetchTransactions(address)
+    if (!address) return
+    // Reset the auto-refresh timer so it doesn't fire immediately after a manual refresh
+    if (intervalRef.current) clearInterval(intervalRef.current)
+    fetchTransactions(address)
+    intervalRef.current = setInterval(() => fetchTransactions(address), 120_000)
   }, [address, fetchTransactions])
 
   useEffect(() => {

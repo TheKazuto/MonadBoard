@@ -7,7 +7,7 @@ import {
   ArrowLeftRight, Zap, Image, ExternalLink, Wallet,
   Bell, Lock, Eye, Plus, Trash2, ChevronLeft, ChevronRight,
 } from 'lucide-react'
-import { useTransactions, formatTimeAgo, shortenAddr, Transaction } from '@/contexts/TransactionContext'
+import { useTransactions, formatDate, formatTimeAgo, shortenAddr, Transaction } from '@/contexts/TransactionContext'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const TYPE_CONFIG: Record<string, { icon: React.ReactNode; bg: string; text: string; label: string }> = {
@@ -27,11 +27,6 @@ const watchedWallets = [
   { address: '0x1234...5678', label: 'Whale Watch', txCount: 142, lastTx: '5m ago' },
   { address: '0xabcd...ef01', label: 'Monad Team', txCount: 8, lastTx: '2h ago' },
 ]
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function formatDate(ts: number) {
-  return new Date(ts * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 // ─── Row ──────────────────────────────────────────────────────────────────────
 function TxRow({ tx }: { tx: Transaction }) {
@@ -110,7 +105,6 @@ export default function TransactionsPage() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [watchInput, setWatchInput] = useState('')
-  const nftGated = false
   const listRef = useRef<HTMLDivElement>(null)
 
   // ── Filter + search ────────────────────────────────────────────────────────
@@ -138,9 +132,17 @@ export default function TransactionsPage() {
   const handleSearchChange = (v: string) => { setSearch(v); setPage(1) }
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageTxs = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
-  const monadScanUrl = address ? `https://monadscan.com/address/${address}` : 'https://monadscan.com'
+  // FIX 2: clip page to valid range when filtered results shrink
+  const safePage = Math.min(page, totalPages)
+
+  // FIX 5: memoize the page slice — only recomputes when filtered list or page changes
+  const pageTxs = useMemo(
+    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filtered, safePage]
+  )
+
+  const monadScanUrl = `https://monadscan.com/address/${address}`
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
@@ -204,7 +206,7 @@ export default function TransactionsPage() {
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 text-xs text-violet-500 hover:text-violet-700 transition-colors font-medium"
                   >
-                    Ver tudo no MonadScan
+                    View all on MonadScan
                     <ExternalLink size={11} />
                   </a>
                 )}
@@ -258,7 +260,7 @@ export default function TransactionsPage() {
             {isConnected && (status === 'success' || transactions.length > 0) && (
               <>
                 {pageTxs.length > 0
-                  ? pageTxs.map((tx, i) => <TxRow key={(page - 1) * PAGE_SIZE + i} tx={tx} />)
+                  ? pageTxs.map(tx => <TxRow key={tx.hash} tx={tx} />)
                   : (
                     <div className="flex flex-col items-center justify-center py-12 gap-2 text-center">
                       <p className="text-sm text-gray-400">
@@ -273,8 +275,8 @@ export default function TransactionsPage() {
                   <div className="flex items-center justify-between px-4 py-3 border-t border-gray-50 bg-gray-50/30">
                     {/* Prev arrow */}
                     <button
-                      onClick={() => goToPage(page - 1)}
-                      disabled={page === 1}
+                      onClick={() => goToPage(safePage - 1)}
+                      disabled={safePage === 1}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
                     >
                       <ChevronLeft size={16} strokeWidth={2.5} />
@@ -284,7 +286,7 @@ export default function TransactionsPage() {
                     {/* Center: range + dots */}
                     <div className="flex flex-col items-center gap-1.5">
                       <span className="text-xs font-medium text-gray-500">
-                        {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}
+                        {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)}
                         <span className="text-gray-300 mx-1">/</span>
                         {filtered.length}
                       </span>
@@ -295,7 +297,7 @@ export default function TransactionsPage() {
                             onClick={() => goToPage(n)}
                             aria-label={`Page ${n}`}
                             className={`rounded-full transition-all duration-200 ${
-                              page === n
+                              safePage === n
                                 ? 'w-4 h-2 bg-violet-600'
                                 : 'w-2 h-2 bg-gray-200 hover:bg-violet-300'
                             }`}
@@ -306,8 +308,8 @@ export default function TransactionsPage() {
 
                     {/* Next arrow */}
                     <button
-                      onClick={() => goToPage(page + 1)}
-                      disabled={page === totalPages}
+                      onClick={() => goToPage(safePage + 1)}
+                      disabled={safePage === totalPages}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium text-gray-500 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-25 disabled:cursor-not-allowed transition-all"
                     >
                       <span>Next</span>
@@ -325,20 +327,19 @@ export default function TransactionsPage() {
 
           {/* Watch Wallets */}
           <div className="card p-5 relative">
-            {!nftGated && (
-              <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-10 text-center p-6"
-                style={{ background: 'rgba(250,249,255,0.93)', backdropFilter: 'blur(4px)' }}>
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center mb-3">
-                  <Lock size={24} className="text-white" />
-                </div>
-                <h3 className="font-bold text-gray-800 mb-1" style={{ fontFamily: 'Sora, sans-serif' }}>Premium Feature</h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  Hold a <strong className="text-violet-700">MonBoard NFT</strong> to monitor wallets and receive Telegram alerts.
-                </p>
-                <button className="btn-primary text-sm px-5 py-2">Get Your NFT</button>
-                <p className="text-xs text-gray-400 mt-2">Collection launching soon</p>
+            {/* TODO: implement NFT gating — replace with dynamic check when collection launches */}
+            <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-10 text-center p-6"
+              style={{ background: 'rgba(250,249,255,0.93)', backdropFilter: 'blur(4px)' }}>
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center mb-3">
+                <Lock size={24} className="text-white" />
               </div>
-            )}
+              <h3 className="font-bold text-gray-800 mb-1" style={{ fontFamily: 'Sora, sans-serif' }}>Premium Feature</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Hold a <strong className="text-violet-700">MonBoard NFT</strong> to monitor wallets and receive Telegram alerts.
+              </p>
+              <button className="btn-primary text-sm px-5 py-2">Get Your NFT</button>
+              <p className="text-xs text-gray-400 mt-2">Collection launching soon</p>
+            </div>
             <h2 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>
               <Eye size={16} className="inline mr-1.5 text-violet-500" />Watch Wallets
             </h2>
@@ -367,13 +368,12 @@ export default function TransactionsPage() {
 
           {/* Telegram Alerts */}
           <div className="card p-5 relative">
-            {!nftGated && (
-              <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-10 text-center p-6"
-                style={{ background: 'rgba(250,249,255,0.93)', backdropFilter: 'blur(4px)' }}>
-                <Lock size={20} className="text-violet-400 mb-2" />
-                <p className="text-xs text-gray-500">NFT required</p>
-              </div>
-            )}
+            {/* TODO: implement NFT gating */}
+            <div className="absolute inset-0 rounded-2xl flex flex-col items-center justify-center z-10 text-center p-6"
+              style={{ background: 'rgba(250,249,255,0.93)', backdropFilter: 'blur(4px)' }}>
+              <Lock size={20} className="text-violet-400 mb-2" />
+              <p className="text-xs text-gray-500">NFT required</p>
+            </div>
             <h2 className="font-semibold text-gray-800 mb-3" style={{ fontFamily: 'Sora, sans-serif' }}>
               <Bell size={16} className="inline mr-1.5 text-violet-500" />Telegram Alerts
             </h2>
