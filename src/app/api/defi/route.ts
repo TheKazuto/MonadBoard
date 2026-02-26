@@ -1,22 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { MONAD_RPC as RPC, rpcBatch, getMonPrice } from '@/lib/monad'
 
 export const revalidate = 0
-
-const RPC = 'https://rpc.monad.xyz'
-
-// ─── RPC helpers ─────────────────────────────────────────────────────────────
-async function rpcBatch(calls: object[]): Promise<any[]> {
-  if (!calls.length) return []
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(calls),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(15_000),
-  })
-  const data = await res.json()
-  return Array.isArray(data) ? data : [data]
-}
 function ethCall(to: string, data: string, id: number) {
   return { jsonrpc: '2.0', id, method: 'eth_call', params: [{ to, data }, 'latest'] }
 }
@@ -43,17 +28,6 @@ const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
   '0xa3227c5969757783154c60bf0bc1944180ed81b9': { symbol: 'sMON',  decimals: 18 },
   '0x8498312a6b3cbd158bf0c93abdcf29e6e4f55081': { symbol: 'gMON',  decimals: 18 },
   '0x1b68626dca36c7fe922fd2d55e4f631d962de19c': { symbol: 'shMON', decimals: 18 },
-}
-
-// ─── MON price ───────────────────────────────────────────────────────────────
-async function getMonPrice(): Promise<number> {
-  try {
-    const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd', {
-      next: { revalidate: 60 }
-    })
-    const d = await res.json()
-    return d?.monad?.usd ?? 0
-  } catch { return 0 }
 }
 
 // ─── Multi-token prices via CoinGecko ────────────────────────────────────────

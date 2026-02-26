@@ -8,6 +8,7 @@ import {
   Bell, Lock, Eye, Plus, Trash2, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useTransactions, formatDate, formatTimeAgo, shortenAddr, Transaction } from '@/contexts/TransactionContext'
+import { SORA } from '@/lib/styles'
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const TYPE_CONFIG: Record<string, { icon: React.ReactNode; bg: string; text: string; label: string }> = {
@@ -149,7 +150,7 @@ export default function TransactionsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>Transactions</h1>
+          <h1 className="font-bold text-2xl text-gray-900" style={SORA}>Transactions</h1>
           <p className="text-gray-500 text-sm mt-1">Full history and wallet monitoring</p>
         </div>
         {isConnected && lastUpdated && (
@@ -194,7 +195,7 @@ export default function TransactionsPage() {
 
             {/* Card header */}
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-50">
-              <h2 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+              <h2 className="font-semibold text-gray-800" style={SORA}>
                 Transaction History
               </h2>
               <div className="flex items-center gap-3">
@@ -333,14 +334,14 @@ export default function TransactionsPage() {
               <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center mb-3">
                 <Lock size={24} className="text-white" />
               </div>
-              <h3 className="font-bold text-gray-800 mb-1" style={{ fontFamily: 'Sora, sans-serif' }}>Premium Feature</h3>
+              <h3 className="font-bold text-gray-800 mb-1" style={SORA}>Premium Feature</h3>
               <p className="text-sm text-gray-500 mb-4">
                 Hold a <strong className="text-violet-700">MonBoard NFT</strong> to monitor wallets and receive Telegram alerts.
               </p>
               <button className="btn-primary text-sm px-5 py-2">Get Your NFT</button>
               <p className="text-xs text-gray-400 mt-2">Collection launching soon</p>
             </div>
-            <h2 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>
+            <h2 className="font-semibold text-gray-800 mb-4" style={SORA}>
               <Eye size={16} className="inline mr-1.5 text-violet-500" />Watch Wallets
             </h2>
             <div className="flex gap-2 mb-4">
@@ -374,7 +375,7 @@ export default function TransactionsPage() {
               <Lock size={20} className="text-violet-400 mb-2" />
               <p className="text-xs text-gray-500">NFT required</p>
             </div>
-            <h2 className="font-semibold text-gray-800 mb-3" style={{ fontFamily: 'Sora, sans-serif' }}>
+            <h2 className="font-semibold text-gray-800 mb-3" style={SORA}>
               <Bell size={16} className="inline mr-1.5 text-violet-500" />Telegram Alerts
             </h2>
             <p className="text-xs text-gray-500 mb-4">Connect Telegram to get real-time notifications for your wallet and watched wallets.</p>

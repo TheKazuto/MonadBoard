@@ -1,87 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { KNOWN_TOKENS, rpcBatch, buildBalanceOfCall } from '@/lib/monad'
 
 export const revalidate = 0
-
-// ─── Known Monad Mainnet token contracts ─────────────────────────────────────
-const KNOWN_TOKENS = [
-  {
-    symbol: 'USDC',
-    name: 'USD Coin',
-    contract: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603',
-    decimals: 6,
-    coingeckoId: 'usd-coin',
-    color: '#2775CA',
-  },
-  {
-    symbol: 'WETH',
-    name: 'Wrapped ETH',
-    contract: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242',
-    decimals: 18,
-    coingeckoId: 'weth',
-    color: '#627EEA',
-  },
-  {
-    symbol: 'USDT',
-    name: 'Tether USD',
-    contract: '0xe7cd86e13AC4309349F30B3435a9d337750fC82D',
-    decimals: 6,
-    coingeckoId: 'tether',
-    color: '#26A17B',
-  },
-  {
-    symbol: 'WBTC',
-    name: 'Wrapped BTC',
-    contract: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c',
-    decimals: 8,
-    coingeckoId: 'wrapped-bitcoin',
-    color: '#F7931A',
-  },
-  {
-    symbol: 'WMON',
-    name: 'Wrapped MON',
-    contract: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A',
-    decimals: 18,
-    coingeckoId: 'monad',
-    color: '#836EF9',
-  },
-  {
-    symbol: 'AUSD',
-    name: 'Agora USD',
-    contract: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a',
-    decimals: 6,
-    coingeckoId: 'agora-dollar',
-    color: '#FF6B35',
-  },
-]
-
-const RPC = 'https://rpc.monad.xyz'
-
-// ERC-20 balanceOf(address) selector = 0x70a08231
-function buildBalanceOfCall(tokenContract: string, walletAddress: string) {
-  const paddedAddress = walletAddress.slice(2).toLowerCase().padStart(64, '0')
-  return {
-    jsonrpc: '2.0',
-    method: 'eth_call',
-    params: [
-      {
-        to: tokenContract,
-        data: '0x70a08231' + paddedAddress,
-      },
-      'latest',
-    ],
-    id: tokenContract,
-  }
-}
-
-async function rpcBatch(calls: object[]): Promise<any[]> {
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(calls),
-    cache: 'no-store',
-  })
-  return res.json()
-}
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')
@@ -102,15 +22,11 @@ export async function GET(req: NextRequest) {
       id: 'native',
     }
 
-    const [nativeRes, ...erc20Responses] = await Promise.all([
-      fetch(RPC, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nativeCall),
-        cache: 'no-store',
-      }).then((r) => r.json()),
-      ...(await rpcBatch(erc20Calls)),
-    ])
+    // Batch native balance + all ERC-20 balanceOf in a single RPC request
+    const allCalls = [nativeCall, ...erc20Calls]
+    const allResults = await rpcBatch(allCalls)
+    const nativeRes       = allResults[0]
+    const erc20Responses  = allResults.slice(1)
 
     // ── 2. Parse raw balances ──────────────────────────────────────────────────
     const rawMON = nativeRes?.result
@@ -133,24 +49,19 @@ export async function GET(req: NextRequest) {
     let prices: Record<string, number> = {}
     let images: Record<string, string> = {}
     try {
-      const priceRes = await fetch(
-        `https://api.coingecko.com/api/v3/simple/price?ids=${coinIds}&vs_currencies=usd&include_24hr_change=true`,
-        { next: { revalidate: 60 } }
-      )
-      const priceData = await priceRes.json()
-      for (const [id, val] of Object.entries(priceData)) {
-        prices[id] = (val as any).usd ?? 0
-      }
-
-      // Fetch images via /coins/markets (includes image, free tier)
+      // /coins/markets returns both current_price and image in a single call —
+      // no need for a separate /simple/price request (Fix #6).
       const marketRes = await fetch(
         `https://api.coingecko.com/api/v3/coins/markets?ids=${coinIds}&vs_currency=usd&per_page=20`,
-        { next: { revalidate: 3600 } }
+        { next: { revalidate: 60 } }
       )
       const marketData = await marketRes.json()
       if (Array.isArray(marketData)) {
         for (const coin of marketData) {
-          if (coin.id && coin.image) images[coin.id] = coin.image
+          if (coin.id) {
+            prices[coin.id] = coin.current_price ?? 0
+            if (coin.image) images[coin.id] = coin.image
+          }
         }
       }
     } catch {

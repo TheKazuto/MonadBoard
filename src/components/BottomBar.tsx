@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { useMonadPrice } from '@/hooks/useMonadPrice'
+import { SORA } from '@/lib/styles'
 
 const SocialLinks = [
   {
@@ -72,7 +73,7 @@ export default function BottomBar() {
             />
           </div>
 
-          <span className="font-display text-sm font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+          <span className="font-display text-sm font-semibold text-gray-800" style={SORA}>
             MON
           </span>
 

@@ -1,23 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { MONAD_RPC as RPC, rpcBatch, getMonPrice } from '@/lib/monad'
 
 export const revalidate = 0
 
-const RPC = 'https://rpc.monad.xyz'
 const MONAD_CHAIN_ID = 143
-
-// ─── RPC helpers ──────────────────────────────────────────────────────────────
-async function rpcBatch(calls: object[]): Promise<any[]> {
-  if (!calls.length) return []
-  const res = await fetch(RPC, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(calls),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(12_000),
-  })
-  const data = await res.json()
-  return Array.isArray(data) ? data : [data]
-}
 
 function padUint256(n: bigint) { return n.toString(16).padStart(64, '0') }
 function decodeString(hex: string): string {
@@ -152,8 +138,7 @@ export async function GET(req: NextRequest) {
     const [metaResults, floorMap, monPrice] = await Promise.all([
       Promise.all(cap.map((_, i) => fetchTokenMeta(decodeString(uriRes[i]?.result ?? '')))),
       fetchFloorPrices(address, contracts),
-      fetch('https://api.coingecko.com/api/v3/simple/price?ids=monad&vs_currencies=usd', { next: { revalidate: 60 } })
-        .then(r => r.json()).then(d => (d?.monad?.usd ?? 0) as number).catch(() => 0),
+      getMonPrice(),
     ])
 
     const nfts = cap.map(({ contract, tokenId }, i) => {

@@ -1,7 +1,9 @@
 'use client'
 import { cachedFetch, getCached } from '@/lib/dataCache'
+import { SORA } from '@/lib/styles'
+import { fmtUSD, fmtYAxis } from '@/lib/format'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useWallet }      from '@/contexts/WalletContext'
 import { usePreferences } from '@/contexts/PreferencesContext'
 import {
@@ -23,19 +25,6 @@ const RANGES: { label: string; key: Range; days: number }[] = [
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function formatCurrency(v: number) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(2)}K`
-  if (v >= 1)         return `$${v.toFixed(2)}`
-  return `$${v.toFixed(4)}`
-}
-
-function formatYAxis(v: number) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(1)}K`
-  return `$${v.toFixed(0)}`
-}
-
 function formatDate(dateStr: string, range: Range) {
   const d = new Date(dateStr)
   if (range === '7d') return d.toLocaleDateString('en', { weekday: 'short' })
@@ -58,7 +47,7 @@ function CustomTooltip({ active, payload, label }: any) {
       <p className="text-gray-400 mb-0.5">
         {new Date(label).toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}
       </p>
-      <p className="font-bold text-violet-700">{formatCurrency(payload[0].value)}</p>
+      <p className="font-bold text-violet-700">{fmtUSD(payload[0].value)}</p>
     </div>
   )
 }
@@ -94,6 +83,14 @@ export default function PortfolioHistory() {
   const { address, stableAddress, isConnected } = useWallet()
   const { defaultRange } = usePreferences()
   const [range, setRange] = useState<Range>(defaultRange)
+  // Sync range when the user changes their preferred default in Account settings
+  const prevDefaultRange = useRef(defaultRange)
+  useEffect(() => {
+    if (defaultRange !== prevDefaultRange.current) {
+      prevDefaultRange.current = defaultRange
+      setRange(defaultRange)
+    }
+  }, [defaultRange])
   const [data, setData] = useState<Record<Range, ApiResponse | null>>({
     '7d': null, '30d': null, '90d': null, '1y': null,
   })
@@ -146,7 +143,7 @@ export default function PortfolioHistory() {
   if (!isConnected) {
     return (
       <div className="card p-5">
-        <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-semibold text-gray-800" style={SORA}>
           Token Portfolio History
         </h3>
         <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
@@ -167,7 +164,7 @@ export default function PortfolioHistory() {
     return (
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Token Portfolio History</h3>
+          <h3 className="font-semibold text-gray-800" style={SORA}>Token Portfolio History</h3>
           <div className="flex items-center gap-2">
             <button
               onClick={() => fetchRange(range, true)}
@@ -202,7 +199,7 @@ export default function PortfolioHistory() {
     return (
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Token Portfolio History</h3>
+          <h3 className="font-semibold text-gray-800" style={SORA}>Token Portfolio History</h3>
           <RangeSelector range={range} setRange={setRange} />
         </div>
         <div className="flex flex-col items-center justify-center h-48 gap-2 text-center">
@@ -217,7 +214,7 @@ export default function PortfolioHistory() {
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+          <h3 className="font-semibold text-gray-800" style={SORA}>
             Token Portfolio History
           </h3>
           {current && (
@@ -227,7 +224,7 @@ export default function PortfolioHistory() {
                 {isPositive ? '+' : ''}{current.change.toFixed(2)}% in period
               </span>
               {current.totalValue > 0 && (
-                <span className="text-gray-400 ml-1 text-xs">· {formatCurrency(current.totalValue)}</span>
+                <span className="text-gray-400 ml-1 text-xs">· {fmtUSD(current.totalValue)}</span>
               )}
             </div>
           )}
@@ -267,7 +264,7 @@ export default function PortfolioHistory() {
               tick={{ fontSize: 10, fill: '#9ca3af' }}
               tickLine={false}
               axisLine={false}
-              tickFormatter={formatYAxis}
+              tickFormatter={fmtYAxis}
               width={52}
               domain={['auto', 'auto']}
             />

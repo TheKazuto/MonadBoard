@@ -9,15 +9,10 @@ import {
   ExternalLink, LayoutGrid, List,
 } from 'lucide-react'
 import PortfolioHistory from '@/components/PortfolioHistory'
+import { SORA } from '@/lib/styles'
+import { fmtUSD } from '@/lib/format'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function fmt(v: number) {
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`
-  if (v >= 1_000)     return `$${(v / 1_000).toFixed(2)}K`
-  if (v >= 1)         return `$${v.toFixed(2)}`
-  if (v > 0)          return `$${v.toFixed(4)}`
-  return '$0.00'
-}
 function fmtBal(b: number) {
   if (b >= 1_000_000) return `${(b / 1_000_000).toFixed(2)}M`
   if (b >= 1_000)     return `${(b / 1_000).toFixed(2)}K`
@@ -97,7 +92,7 @@ function TokenRow({ token }: { token: TokenData }) {
         {token.price < 0.01 ? `$${token.price.toFixed(6)}` : token.price < 1 ? `$${token.price.toFixed(4)}` : `$${token.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
       </td>
       <td className="py-3.5 px-3 text-right text-sm text-gray-600 hidden md:table-cell">{fmtBal(token.balance)}</td>
-      <td className="py-3.5 px-3 text-right font-semibold text-sm text-gray-800">{fmt(token.value)}</td>
+      <td className="py-3.5 px-3 text-right font-semibold text-sm text-gray-800">{fmtUSD(token.value)}</td>
       <td className="py-3.5 px-3 hidden lg:table-cell">
         <div className="flex items-center gap-2 justify-end">
           <div className="w-20 h-1.5 rounded-full bg-gray-100 overflow-hidden">
@@ -133,7 +128,7 @@ function NFTCard({ nft }: { nft: NFTData }) {
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-400">Floor</span>
               <div className="text-right">
-                <span className="text-xs font-semibold text-violet-700">{fmt(nft.floorUSD)}</span>
+                <span className="text-xs font-semibold text-violet-700">{fmtUSD(nft.floorUSD)}</span>
                 {nft.floorMON > 0 && <p className="text-xs text-gray-400">{nft.floorMON.toFixed(2)} MON</p>}
               </div>
             </div>
@@ -164,7 +159,7 @@ function NFTListRow({ nft }: { nft: NFTData }) {
       </div>
       {nft.floorUSD > 0 && (
         <div className="text-right shrink-0">
-          <p className="text-sm font-semibold text-violet-700">{fmt(nft.floorUSD)}</p>
+          <p className="text-sm font-semibold text-violet-700">{fmtUSD(nft.floorUSD)}</p>
           {nft.floorMON > 0 && <p className="text-xs text-gray-400">{nft.floorMON.toFixed(2)} MON</p>}
         </div>
       )}
@@ -195,7 +190,7 @@ export default function PortfolioPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>Portfolio</h1>
+          <h1 className="font-bold text-2xl text-gray-900" style={SORA}>Portfolio</h1>
           <p className="text-gray-500 text-sm mt-1">All tokens and NFTs in your wallet</p>
         </div>
         {isConnected && lastUpdated && (
@@ -236,8 +231,8 @@ export default function PortfolioPage() {
               {isLoading && totalValue === 0
                 ? <Skeleton className="h-8 w-40" />
                 : (
-                  <p className="font-bold text-3xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>
-                    {fmt(totalValue)}
+                  <p className="font-bold text-3xl text-gray-900" style={SORA}>
+                    {fmtUSD(totalValue)}
                   </p>
                 )
               }
@@ -272,7 +267,7 @@ export default function PortfolioPage() {
               </div>
               {isLoading && tokenValue === 0
                 ? <Skeleton className="h-7 w-24 mt-1" />
-                : <p className="font-bold text-xl text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>{fmt(tokenValue)}</p>
+                : <p className="font-bold text-xl text-gray-800" style={SORA}>{fmtUSD(tokenValue)}</p>
               }
               {tokens.length > 0 && (
                 <p className="text-xs text-gray-400 mt-1">{tokens.length} token{tokens.length !== 1 ? 's' : ''}</p>
@@ -289,7 +284,7 @@ export default function PortfolioPage() {
               </div>
               {isLoading && nftValue === 0
                 ? <Skeleton className="h-7 w-24 mt-1" />
-                : <p className="font-bold text-xl text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>{fmt(nftValue)}</p>
+                : <p className="font-bold text-xl text-gray-800" style={SORA}>{fmtUSD(nftValue)}</p>
               }
               {nftTotal > 0 && (
                 <p className="text-xs text-gray-400 mt-1">{nftTotal} NFT{nftTotal !== 1 ? 's' : ''} · floor price</p>
@@ -308,7 +303,7 @@ export default function PortfolioPage() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
               <div className="flex items-center gap-2">
                 <Coins size={16} className="text-violet-600" />
-                <h2 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Tokens</h2>
+                <h2 className="font-semibold text-gray-800" style={SORA}>Tokens</h2>
                 {tokens.length > 0 && (
                   <span className="text-xs bg-violet-100 text-violet-600 font-semibold px-2 py-0.5 rounded-full">{tokens.length}</span>
                 )}
@@ -351,14 +346,14 @@ export default function PortfolioPage() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
               <div className="flex items-center gap-2">
                 <ImageIcon size={16} className="text-blue-500" />
-                <h2 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>NFTs</h2>
+                <h2 className="font-semibold text-gray-800" style={SORA}>NFTs</h2>
                 {nftTotal > 0 && (
                   <span className="text-xs bg-blue-50 text-blue-500 font-semibold px-2 py-0.5 rounded-full">{nftTotal}</span>
                 )}
               </div>
               <div className="flex items-center gap-3">
                 {nftValue > 0 && (
-                  <span className="text-xs text-gray-400 font-medium">{fmt(nftValue)} total floor</span>
+                  <span className="text-xs text-gray-400 font-medium">{fmtUSD(nftValue)} total floor</span>
                 )}
                 {/* NFT refresh button */}
                 <button

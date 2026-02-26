@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react'
 
 export type Currency = 'USD' | 'EUR' | 'BRL'
 export type TimeRange = '7d' | '30d' | '90d' | '1y'
@@ -104,7 +104,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   }
 
   // ── Format a USD value into the selected currency ──────────────────────────
-  const fmtValue = (usd: number): string => {
+  // Wrapped in useCallback so the reference only changes when currency or rates
+  // change — prevents unnecessary re-renders of all context consumers.
+  const fmtValue = useCallback((usd: number): string => {
     const rate   = rates[currency]
     const symbol = SYMBOLS[currency]
     const v      = usd * rate
@@ -113,7 +115,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (v >= 1)         return `${symbol}${v.toFixed(2)}`
     if (v > 0)          return `${symbol}${v.toFixed(4)}`
     return `${symbol}0.00`
-  }
+  }, [currency, rates])
 
   return (
     <PreferencesContext.Provider value={{

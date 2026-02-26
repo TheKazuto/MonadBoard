@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { SORA } from '@/lib/styles'
+import { fmtUSD } from '@/lib/format'
 import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react'
 
 interface Token {
@@ -13,13 +15,6 @@ interface Token {
   market_cap_rank: number
   price_change_percentage_24h: number
   total_volume: number
-}
-
-function formatCurrency(value: number): string {
-  if (value >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`
-  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`
-  if (value >= 1_000) return `$${(value / 1_000).toFixed(2)}K`
-  return `$${value.toFixed(2)}`
 }
 
 function formatPrice(price: number): string {
@@ -59,8 +54,8 @@ export default function TopTokens() {
 
   useEffect(() => {
     fetchTokens()
-    const interval = setInterval(fetchTokens, 60_000)
-    return () => clearInterval(interval)
+    // No polling — /api/top-tokens has revalidate=60 server-side cache.
+    // Data refreshes on next page visit or via the manual refresh button.
   }, [])
 
   return (
@@ -70,7 +65,7 @@ export default function TopTokens() {
         <div>
           <h3
             className="font-semibold text-gray-800"
-            style={{ fontFamily: 'Sora, sans-serif' }}
+            style={SORA}
           >
             Top Monad Tokens
           </h3>
@@ -178,12 +173,12 @@ export default function TopTokens() {
 
                     {/* Market cap */}
                     <td className="py-2.5 text-right text-gray-500 text-xs hidden sm:table-cell">
-                      {token.market_cap ? formatCurrency(token.market_cap) : '—'}
+                      {token.market_cap ? fmtUSD(token.market_cap) : '—'}
                     </td>
 
                     {/* Volume */}
                     <td className="py-2.5 text-right text-gray-500 text-xs hidden md:table-cell">
-                      {token.total_volume ? formatCurrency(token.total_volume) : '—'}
+                      {token.total_volume ? fmtUSD(token.total_volume) : '—'}
                     </td>
 
                     {/* 24h change */}

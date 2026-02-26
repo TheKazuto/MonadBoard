@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { MONAD_RPC as RPC } from '@/lib/monad'
 
 export const revalidate = 0
-
-const RPC = 'https://rpc.monad.xyz'
 
 async function rpc(method: string, params: any[], id = 1) {
   const r = await fetch(RPC, {

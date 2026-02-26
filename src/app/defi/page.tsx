@@ -3,17 +3,10 @@
 import { useWallet }    from '@/contexts/WalletContext'
 import { usePortfolio } from '@/contexts/PortfolioContext'
 import { RefreshCw, TrendingUp, TrendingDown, Zap, ExternalLink, AlertCircle } from 'lucide-react'
+import { SORA } from '@/lib/styles'
+import { fmtUSD } from '@/lib/format'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-function fmtUSD(n: number): string {
-  if (!n && n !== 0) return '—'
-  const abs  = Math.abs(n)
-  const sign = n < 0 ? '-' : ''
-  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
-  if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(2)}K`
-  if (abs >= 0.01)      return `${sign}$${abs.toFixed(2)}`
-  return `${sign}$${abs.toFixed(4)}`
-}
 function fmtPct(n: number | null): string {
   if (n === null || n === undefined) return '—'
   return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
@@ -314,7 +307,7 @@ function SummaryBanner({
       <div className="px-6 pt-5 pb-4" style={{ background: 'linear-gradient(135deg, #836EF9 0%, #6d28d9 100%)' }}>
         <p className="text-violet-200 text-xs font-medium uppercase tracking-wide mb-1">Total DeFi Value</p>
         <div className="flex items-end gap-3">
-          <p className="font-display text-4xl font-bold text-white" style={{ fontFamily: 'Sora, sans-serif' }}>
+          <p className="font-display text-4xl font-bold text-white" style={SORA}>
             {fmtUSD(netValueUSD)}
           </p>
           {totalDebtUSD > 0 && (
@@ -389,7 +382,7 @@ export default function DefiPage() {
       {/* ── Page Header ── */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-bold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+          <h1 className="text-xl font-bold text-gray-800" style={SORA}>
             DeFi Positions
           </h1>
           <p className="text-gray-400 text-sm mt-0.5">

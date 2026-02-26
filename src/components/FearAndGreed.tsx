@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { RefreshCw, ChevronRight } from 'lucide-react'
+import { SORA } from '@/lib/styles'
 
 interface FGEntry {
   value: number
@@ -144,7 +145,7 @@ export default function FearAndGreed() {
     <div className="card p-5">
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-semibold text-gray-800" style={SORA}>
           Fear & Greed
         </h3>
         <div className="flex items-center gap-2">
@@ -199,7 +200,7 @@ export default function FearAndGreed() {
           <div className="mt-1 mb-4 text-center">
             <span
               className="text-base font-bold"
-              style={{ color: getColor(data.now.value), fontFamily: 'Sora, sans-serif' }}
+              style={{ ...SORA, color: getColor(data.now.value) }}
             >
               {data.now.label}
             </span>
@@ -220,7 +221,7 @@ export default function FearAndGreed() {
                 style={{ background: `${getColor(entry.value)}11`, border: `1px solid ${getColor(entry.value)}33` }}
               >
                 <p className="text-xs text-gray-400 mb-1">{label}</p>
-                <p className="font-bold text-gray-800 text-lg" style={{ fontFamily: 'Sora, sans-serif' }}>
+                <p className="font-bold text-gray-800 text-lg" style={SORA}>
                   {entry.value}
                 </p>
                 <p className="text-xs font-medium" style={{ color: getColor(entry.value) }}>

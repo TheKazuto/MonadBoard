@@ -9,6 +9,7 @@ import {
 import { useWallet } from '@/contexts/WalletContext'
 import { useChainId, useSwitchChain, useSendTransaction } from 'wagmi'
 import { createPublicClient, http, formatUnits, encodeFunctionData } from 'viem'
+import { SORA } from '@/lib/styles'
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface Approval {
@@ -306,7 +307,7 @@ export default function SecurityPage() {
             <Shield size={20} className="text-white" />
           </div>
           <div>
-            <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>Security</h1>
+            <h1 className="font-bold text-2xl text-gray-900" style={SORA}>Security</h1>
             <p className="text-sm text-gray-500">Review and revoke token approvals on Monad</p>
           </div>
         </div>

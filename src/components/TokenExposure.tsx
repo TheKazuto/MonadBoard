@@ -5,6 +5,7 @@ import { cachedFetch } from '@/lib/dataCache'
 import { useWallet } from '@/contexts/WalletContext'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { RefreshCw, Wallet } from 'lucide-react'
+import { SORA } from '@/lib/styles'
 
 interface TokenData {
   symbol: string
@@ -82,7 +83,7 @@ export default function TokenExposure() {
   if (!isConnected) {
     return (
       <div className="card p-5">
-        <h3 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-semibold text-gray-800 mb-4" style={SORA}>
           Token Exposure
         </h3>
         <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
@@ -99,7 +100,7 @@ export default function TokenExposure() {
   if (loading && !data) {
     return (
       <div className="card p-5">
-        <h3 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-semibold text-gray-800 mb-4" style={SORA}>
           Token Exposure
         </h3>
         <div className="flex flex-col sm:flex-row items-center gap-4 animate-pulse">
@@ -123,7 +124,7 @@ export default function TokenExposure() {
   if (error) {
     return (
       <div className="card p-5">
-        <h3 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-semibold text-gray-800 mb-4" style={SORA}>
           Token Exposure
         </h3>
         <div className="flex flex-col items-center justify-center py-6 gap-3 text-center">
@@ -143,7 +144,7 @@ export default function TokenExposure() {
   if (data && data.tokens.length === 0) {
     return (
       <div className="card p-5">
-        <h3 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-semibold text-gray-800 mb-4" style={SORA}>
           Token Exposure
         </h3>
         <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
@@ -161,7 +162,7 @@ export default function TokenExposure() {
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+          <h3 className="font-semibold text-gray-800" style={SORA}>
             Token Exposure
           </h3>
           {data && (

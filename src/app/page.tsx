@@ -10,6 +10,7 @@ import { usePortfolio } from '@/contexts/PortfolioContext'
 import { useWallet }    from '@/contexts/WalletContext'
 import { usePreferences } from '@/contexts/PreferencesContext'
 import {
+import { SORA } from '@/lib/styles'
   RefreshCw, Wallet, Image,
   Zap, ChevronRight, Bell,
 } from 'lucide-react'
@@ -46,13 +47,13 @@ function WalletSummary() {
 
             {/* Main value */}
             {!isConnected ? (
-              <h2 className="text-white font-display text-4xl font-bold" style={{ fontFamily: 'Sora, sans-serif' }}>
+              <h2 className="text-white font-display text-4xl font-bold" style={SORA}>
                 —
               </h2>
             ) : isLoading ? (
               <div className="w-48 h-10 rounded-lg bg-white/20 animate-pulse mt-1" />
             ) : (
-              <h2 className="text-white font-display text-4xl font-bold" style={{ fontFamily: 'Sora, sans-serif' }}>
+              <h2 className="text-white font-display text-4xl font-bold" style={SORA}>
                 {fmtValue(totals.totalValueUSD)}
               </h2>
             )}
@@ -168,7 +169,7 @@ function DeFiPositions() {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-semibold text-gray-800" style={SORA}>
           DeFi Positions
         </h3>
         <div className="flex items-center gap-2">
@@ -296,7 +297,7 @@ function SponsorsBanner() {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="font-display font-semibold text-gray-800 text-sm" style={{ fontFamily: 'Sora, sans-serif' }}>
+        <h3 className="font-display font-semibold text-gray-800 text-sm" style={SORA}>
           Partners & Sponsors
         </h3>
         <a href="mailto:partner@monboard.xyz" className="text-xs text-violet-600">Become a partner →</a>

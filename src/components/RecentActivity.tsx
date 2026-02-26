@@ -3,6 +3,7 @@
 import { useWallet } from '@/contexts/WalletContext'
 import { RefreshCw, ChevronRight, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Zap, Image, ExternalLink, Wallet } from 'lucide-react'
 import { useTransactions, formatTimeAgo, shortenAddr, Transaction } from '@/contexts/TransactionContext'
+import { SORA } from '@/lib/styles'
 
 const TYPE_CONFIG: Record<string, { icon: React.ReactNode; bg: string; text: string; label: string }> = {
   receive:  { icon: <ArrowDownLeft size={14} />,  bg: 'bg-emerald-50', text: 'text-emerald-600', label: 'Received' },
@@ -64,7 +65,7 @@ export default function RecentActivity() {
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>
+          <h3 className="font-semibold text-gray-800" style={SORA}>
             Recent Activity
           </h3>
           {lastUpdated && (

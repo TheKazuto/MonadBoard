@@ -6,6 +6,9 @@ import { usePathname } from 'next/navigation'
 import { LayoutDashboard, Wallet, BarChart3, History, User, Menu, X, Zap, ArrowLeftRight, Shield } from 'lucide-react'
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 
+// Stable style object for the logo wordmark — avoids creating a new object per render
+const LOGO_STYLE = { fontFamily: 'Sora, sans-serif', fontWeight: 700, color: '#200052', fontSize: '1.125rem' } as const
+
 const navLinks = [
   { href: '/',             label: 'Dashboard',      icon: LayoutDashboard },
   { href: '/portfolio',    label: 'Portfolio',      icon: Wallet },
@@ -29,7 +32,7 @@ export default function Navbar() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-lg shadow-violet-200">
             <Zap size={16} className="text-white" fill="white" />
           </div>
-          <span style={{ fontFamily: 'Sora, sans-serif', fontWeight: 700, color: '#200052', fontSize: '1.125rem' }}>
+          <span style={LOGO_STYLE}>
             Mon<span style={{ color: '#836EF9' }}>board</span>
           </span>
         </Link>
