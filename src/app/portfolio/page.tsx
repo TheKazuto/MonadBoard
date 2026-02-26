@@ -1,26 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { cachedFetch, getCached } from '@/lib/dataCache'
+import { useState } from 'react'
 import { useWallet } from '@/contexts/WalletContext'
+import { usePortfolio } from '@/contexts/PortfolioContext'
+import type { TokenData, NFTData } from '@/contexts/PortfolioContext'
 import {
   Coins, Image as ImageIcon, RefreshCw, Wallet,
-  ExternalLink, LayoutGrid, List, TrendingUp, TrendingDown,
+  ExternalLink, LayoutGrid, List,
 } from 'lucide-react'
 import PortfolioHistory from '@/components/PortfolioHistory'
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface Token {
-  symbol: string; name: string; balance: number
-  price: number; value: number; color: string; percentage: number
-  imageUrl?: string
-}
-interface NFT {
-  id: string; contract: string; tokenId: string
-  collection: string; symbol: string; name: string
-  image: string | null; floorMON: number; floorUSD: number
-  magicEdenUrl: string
-}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmt(v: number) {
@@ -48,7 +36,10 @@ function TableSkeleton() {
       {[...Array(4)].map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-5 py-4 border-b border-gray-50">
           <div className="w-9 h-9 rounded-full bg-gray-100 shrink-0" />
-          <div className="flex-1 space-y-1.5"><div className="h-3.5 bg-gray-100 rounded w-28" /><div className="h-2.5 bg-gray-50 rounded w-16" /></div>
+          <div className="flex-1 space-y-1.5">
+            <div className="h-3.5 bg-gray-100 rounded w-28" />
+            <div className="h-2.5 bg-gray-50 rounded w-16" />
+          </div>
           <div className="h-3.5 w-20 bg-gray-100 rounded" />
           <div className="h-3.5 w-16 bg-gray-100 rounded hidden md:block" />
           <div className="h-3.5 w-14 bg-gray-100 rounded" />
@@ -64,7 +55,10 @@ function NFTGridSkeleton() {
       {[...Array(4)].map((_, i) => (
         <div key={i} className="rounded-xl overflow-hidden border border-gray-100">
           <div className="aspect-square bg-gray-100" />
-          <div className="p-3 space-y-2"><div className="h-3 bg-gray-100 rounded w-3/4" /><div className="h-2.5 bg-gray-50 rounded w-1/2" /></div>
+          <div className="p-3 space-y-2">
+            <div className="h-3 bg-gray-100 rounded w-3/4" />
+            <div className="h-2.5 bg-gray-50 rounded w-1/2" />
+          </div>
         </div>
       ))}
     </div>
@@ -81,7 +75,7 @@ function EmptyState({ icon, title, subtitle }: { icon: React.ReactNode; title: s
   )
 }
 
-function TokenRow({ token }: { token: Token }) {
+function TokenRow({ token }: { token: TokenData }) {
   return (
     <tr className="hover:bg-violet-50/40 transition-colors">
       <td className="py-3.5 px-5">
@@ -116,7 +110,7 @@ function TokenRow({ token }: { token: Token }) {
   )
 }
 
-function NFTCard({ nft }: { nft: NFT }) {
+function NFTCard({ nft }: { nft: NFTData }) {
   const [imgErr, setImgErr] = useState(false)
   return (
     <a href={nft.magicEdenUrl} target="_blank" rel="noopener noreferrer"
@@ -134,7 +128,6 @@ function NFTCard({ nft }: { nft: NFT }) {
           <p className="text-xs text-gray-400 truncate">{nft.collection}</p>
           <ExternalLink size={10} className="text-gray-300 group-hover:text-violet-400 shrink-0 ml-1" />
         </div>
-        {/* Floor price */}
         <div className="mt-2 pt-2 border-t border-gray-50">
           {nft.floorUSD > 0 ? (
             <div className="flex items-center justify-between">
@@ -153,7 +146,7 @@ function NFTCard({ nft }: { nft: NFT }) {
   )
 }
 
-function NFTListRow({ nft }: { nft: NFT }) {
+function NFTListRow({ nft }: { nft: NFTData }) {
   const [imgErr, setImgErr] = useState(false)
   return (
     <a href={nft.magicEdenUrl} target="_blank" rel="noopener noreferrer"
@@ -182,71 +175,19 @@ function NFTListRow({ nft }: { nft: NFT }) {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function PortfolioPage() {
-  const { address, stableAddress, isConnected } = useWallet()
+  const { address, isConnected }                 = useWallet()
+  const { totals, status, lastUpdated, refresh } = usePortfolio()
+  const [nftView, setNftView]                    = useState<'grid' | 'list'>('grid')
 
-  const [tokens, setTokens]         = useState<Token[]>([])
-  const [tokenValue, setTokenValue] = useState(0)
-  const [tokensLoading, setTL]      = useState(false)
-  const [tokensError, setTE]        = useState(false)
-
-  const [nfts, setNfts]             = useState<NFT[]>([])
-  const [nftTotal, setNftTotal]     = useState(0)
-  const [nftValue, setNftValue]     = useState(0)
-  const [nftsLoading, setNL]        = useState(false)
-  const [nftsError, setNE]          = useState(false)
-  const [nftsNoKey, setNftsNoKey]   = useState(false)
-  const [nftView, setNftView]       = useState<'grid' | 'list'>('grid')
-
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-
-  const fetchTokens = useCallback(async (addr: string, force = false) => {
-    const cached = getCached<any>('/api/token-exposure', addr)
-    if (cached) { setTokens(cached.tokens ?? []); setTokenValue(cached.totalValue ?? 0) }
-    if (cached && !force) return
-    setTL(true); setTE(false)
-    try {
-      const data = await cachedFetch<any>('/api/token-exposure', addr, force)
-      if (data.error) throw new Error(data.error)
-      setTokens(data.tokens ?? [])
-      setTokenValue(data.totalValue ?? 0)
-      setLastUpdated(new Date())
-    } catch { setTE(true) }
-    finally { setTL(false) }
-  }, [])
-
-  const fetchNFTs = useCallback(async (addr: string, force = false) => {
-    const cached = getCached<any>('/api/nfts', addr)
-    if (cached) { setNfts(cached.nfts ?? []); setNftTotal(cached.total ?? 0); setNftValue(cached.nftValue ?? 0) }
-    if (cached && !force) return
-    setNL(true); setNE(false); setNftsNoKey(false)
-    try {
-      const data = await cachedFetch<any>('/api/nfts', addr, force)
-      if (data.error === 'no_api_key') { setNftsNoKey(true); return }
-      if (data.error) throw new Error(data.error)
-      setNfts(data.nfts ?? [])
-      setNftTotal(data.total ?? 0)
-      setNftValue(data.nftValue ?? 0)
-    } catch { setNE(true) }
-    finally { setNL(false) }
-  }, [])
-
-  const refresh = useCallback(() => {
-    fetchTokens(stableAddress)
-    fetchNFTs(stableAddress)
-  }, [stableAddress, fetchTokens, fetchNFTs])
-
-  useEffect(() => {
-    if (stableAddress) {
-      fetchTokens(stableAddress)
-      fetchNFTs(stableAddress)
-    } else {
-      setTokens([]); setNfts([])
-      setTokenValue(0); setNftValue(0); setNftTotal(0)
-      setLastUpdated(null)
-    }
-  }, [stableAddress, fetchTokens, fetchNFTs])
-
-  const totalValue = tokenValue + nftValue
+  // Derive all data directly from context — no local fetching needed
+  const tokens       = totals.tokens
+  const tokenValue   = totals.tokenValueUSD
+  const nfts         = totals.nfts
+  const nftTotal     = totals.nftTotal
+  const nftValue     = totals.nftValueUSD
+  const nftsNoKey    = totals.nftsNoKey
+  const totalValue   = totals.totalValueUSD
+  const isLoading    = status === 'loading'
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-5">
@@ -260,9 +201,12 @@ export default function PortfolioPage() {
         {isConnected && lastUpdated && (
           <div className="flex items-center gap-2 text-xs text-gray-400">
             <span>Updated {lastUpdated.toLocaleTimeString()}</span>
-            <button onClick={refresh} disabled={tokensLoading || nftsLoading}
-              className="p-1.5 rounded-lg hover:bg-violet-50 text-gray-400 hover:text-violet-600 transition-all disabled:opacity-40">
-              <RefreshCw size={13} className={(tokensLoading || nftsLoading) ? 'animate-spin' : ''} />
+            <button
+              onClick={refresh}
+              disabled={isLoading}
+              className="p-1.5 rounded-lg hover:bg-violet-50 text-gray-400 hover:text-violet-600 transition-all disabled:opacity-40"
+            >
+              <RefreshCw size={13} className={isLoading ? 'animate-spin' : ''} />
             </button>
           </div>
         )}
@@ -286,29 +230,33 @@ export default function PortfolioPage() {
           {/* ── Summary Cards ──────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-            {/* Total Portfolio Value — full width on mobile, spans 2 on lg */}
+            {/* Total Portfolio Value */}
             <div className="card p-5 col-span-2">
               <p className="text-xs text-gray-400 font-medium mb-2">Total Portfolio Value</p>
-              {tokensLoading && tokenValue === 0
+              {isLoading && totalValue === 0
                 ? <Skeleton className="h-8 w-40" />
                 : (
-                  <div className="flex items-end gap-3 flex-wrap">
-                    <p className="font-bold text-3xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>
-                      {fmt(totalValue)}
-                    </p>
-                  </div>
+                  <p className="font-bold text-3xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>
+                    {fmt(totalValue)}
+                  </p>
                 )
               }
               {/* Breakdown bar */}
-              {totalValue > 0 && !tokensLoading && (
+              {totalValue > 0 && !isLoading && (
                 <div className="mt-3">
                   <div className="h-1.5 rounded-full bg-gray-100 overflow-hidden flex">
                     <div className="h-full bg-violet-500 transition-all" style={{ width: `${(tokenValue / totalValue) * 100}%` }} />
                     <div className="h-full bg-blue-400 transition-all" style={{ width: `${(nftValue / totalValue) * 100}%` }} />
                   </div>
                   <div className="flex items-center gap-4 mt-2">
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-violet-500" /><span className="text-xs text-gray-400">Tokens {totalValue > 0 ? `${((tokenValue / totalValue) * 100).toFixed(0)}%` : ''}</span></div>
-                    <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-400" /><span className="text-xs text-gray-400">NFTs {totalValue > 0 ? `${((nftValue / totalValue) * 100).toFixed(0)}%` : ''}</span></div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-violet-500" />
+                      <span className="text-xs text-gray-400">Tokens {`${((tokenValue / totalValue) * 100).toFixed(0)}%`}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-blue-400" />
+                      <span className="text-xs text-gray-400">NFTs {`${((nftValue / totalValue) * 100).toFixed(0)}%`}</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -317,28 +265,38 @@ export default function PortfolioPage() {
             {/* Token Value */}
             <div className="card p-5">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center shrink-0"><Coins size={14} className="text-violet-600" /></div>
+                <div className="w-7 h-7 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+                  <Coins size={14} className="text-violet-600" />
+                </div>
                 <p className="text-xs text-gray-400 font-medium">Token Value</p>
               </div>
-              {tokensLoading && tokenValue === 0
+              {isLoading && tokenValue === 0
                 ? <Skeleton className="h-7 w-24 mt-1" />
                 : <p className="font-bold text-xl text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>{fmt(tokenValue)}</p>
               }
-              {tokens.length > 0 && <p className="text-xs text-gray-400 mt-1">{tokens.length} token{tokens.length !== 1 ? 's' : ''}</p>}
+              {tokens.length > 0 && (
+                <p className="text-xs text-gray-400 mt-1">{tokens.length} token{tokens.length !== 1 ? 's' : ''}</p>
+              )}
             </div>
 
             {/* NFT Value */}
             <div className="card p-5">
               <div className="flex items-center gap-2 mb-2">
-                <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center shrink-0"><ImageIcon size={14} className="text-blue-500" /></div>
+                <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                  <ImageIcon size={14} className="text-blue-500" />
+                </div>
                 <p className="text-xs text-gray-400 font-medium">NFT Value</p>
               </div>
-              {nftsLoading && nftValue === 0
+              {isLoading && nftValue === 0
                 ? <Skeleton className="h-7 w-24 mt-1" />
                 : <p className="font-bold text-xl text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>{fmt(nftValue)}</p>
               }
-              {nftTotal > 0 && <p className="text-xs text-gray-400 mt-1">{nftTotal} NFT{nftTotal !== 1 ? 's' : ''} · floor price</p>}
-              {nftValue === 0 && !nftsLoading && nftTotal > 0 && <p className="text-xs text-gray-300 mt-1">No floor prices available</p>}
+              {nftTotal > 0 && (
+                <p className="text-xs text-gray-400 mt-1">{nftTotal} NFT{nftTotal !== 1 ? 's' : ''} · floor price</p>
+              )}
+              {nftValue === 0 && !isLoading && nftTotal > 0 && (
+                <p className="text-xs text-gray-300 mt-1">No floor prices available</p>
+              )}
             </div>
           </div>
 
@@ -351,7 +309,9 @@ export default function PortfolioPage() {
               <div className="flex items-center gap-2">
                 <Coins size={16} className="text-violet-600" />
                 <h2 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Tokens</h2>
-                {tokens.length > 0 && <span className="text-xs bg-violet-100 text-violet-600 font-semibold px-2 py-0.5 rounded-full">{tokens.length}</span>}
+                {tokens.length > 0 && (
+                  <span className="text-xs bg-violet-100 text-violet-600 font-semibold px-2 py-0.5 rounded-full">{tokens.length}</span>
+                )}
               </div>
               {address && (
                 <a href={`https://monadscan.com/address/${address}`} target="_blank" rel="noopener noreferrer"
@@ -361,9 +321,10 @@ export default function PortfolioPage() {
               )}
             </div>
 
-            {tokensLoading && tokens.length === 0 && <TableSkeleton />}
-            {!tokensLoading && tokensError && <EmptyState icon={<RefreshCw size={22} />} title="Failed to load tokens" />}
-            {!tokensLoading && !tokensError && tokens.length === 0 && <EmptyState icon={<Coins size={22} />} title="No tokens found" subtitle="Your token balances will appear here" />}
+            {isLoading && tokens.length === 0 && <TableSkeleton />}
+            {!isLoading && tokens.length === 0 && (
+              <EmptyState icon={<Coins size={22} />} title="No tokens found" subtitle="Your token balances will appear here" />
+            )}
 
             {tokens.length > 0 && (
               <div className="overflow-x-auto">
@@ -391,35 +352,58 @@ export default function PortfolioPage() {
               <div className="flex items-center gap-2">
                 <ImageIcon size={16} className="text-blue-500" />
                 <h2 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>NFTs</h2>
-                {nftTotal > 0 && <span className="text-xs bg-blue-50 text-blue-500 font-semibold px-2 py-0.5 rounded-full">{nftTotal}</span>}
+                {nftTotal > 0 && (
+                  <span className="text-xs bg-blue-50 text-blue-500 font-semibold px-2 py-0.5 rounded-full">{nftTotal}</span>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 {nftValue > 0 && (
                   <span className="text-xs text-gray-400 font-medium">{fmt(nftValue)} total floor</span>
                 )}
+                {/* NFT refresh button */}
+                <button
+                  onClick={refresh}
+                  disabled={isLoading}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-all disabled:opacity-40"
+                  title="Refresh NFTs"
+                >
+                  <RefreshCw size={13} className={isLoading ? 'animate-spin text-violet-400' : ''} />
+                </button>
                 {nfts.length > 0 && (
                   <div className="flex items-center bg-gray-100 rounded-lg p-0.5">
-                    <button onClick={() => setNftView('grid')} className={`p-1.5 rounded-md transition-all ${nftView === 'grid' ? 'bg-white shadow-sm text-violet-600' : 'text-gray-400 hover:text-gray-600'}`}><LayoutGrid size={13} /></button>
-                    <button onClick={() => setNftView('list')} className={`p-1.5 rounded-md transition-all ${nftView === 'list' ? 'bg-white shadow-sm text-violet-600' : 'text-gray-400 hover:text-gray-600'}`}><List size={13} /></button>
+                    <button
+                      onClick={() => setNftView('grid')}
+                      className={`p-1.5 rounded-md transition-all ${nftView === 'grid' ? 'bg-white shadow-sm text-violet-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                      <LayoutGrid size={13} />
+                    </button>
+                    <button
+                      onClick={() => setNftView('list')}
+                      className={`p-1.5 rounded-md transition-all ${nftView === 'list' ? 'bg-white shadow-sm text-violet-600' : 'text-gray-400 hover:text-gray-600'}`}
+                    >
+                      <List size={13} />
+                    </button>
                   </div>
                 )}
               </div>
             </div>
 
             <div className="p-5">
-              {nftsLoading && nfts.length === 0 && <NFTGridSkeleton />}
-              {!nftsLoading && nftsNoKey && (
+              {isLoading && nfts.length === 0 && <NFTGridSkeleton />}
+              {!isLoading && nftsNoKey && (
                 <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
                   <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center">
                     <span className="text-amber-400 text-lg">🔑</span>
                   </div>
                   <p className="text-sm font-medium text-gray-600">Etherscan API key required</p>
-                  <p className="text-xs text-gray-400 max-w-xs">Add <code className="bg-gray-100 px-1 rounded text-violet-600 font-mono">ETHERSCAN_API_KEY</code> to your Vercel environment variables to enable NFT detection.</p>
-                  <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" className="text-xs text-violet-500 hover:text-violet-700 underline">Get a free key →</a>
+                  <p className="text-xs text-gray-400 max-w-xs">
+                    Add <code className="bg-gray-100 px-1 rounded text-violet-600 font-mono">ETHERSCAN_API_KEY</code> to your Vercel environment variables to enable NFT detection.
+                  </p>
+                  <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-violet-500 hover:text-violet-700 underline">Get a free key →</a>
                 </div>
               )}
-              {!nftsLoading && !nftsNoKey && nftsError && <EmptyState icon={<RefreshCw size={22} />} title="Failed to load NFTs" />}
-              {!nftsLoading && !nftsError && nfts.length === 0 && (
+              {!isLoading && !nftsNoKey && nfts.length === 0 && (
                 <EmptyState icon={<ImageIcon size={22} />} title="No NFTs found" subtitle="NFTs you own on Monad will appear here" />
               )}
 
