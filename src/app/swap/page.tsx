@@ -6,8 +6,8 @@ import {
   CheckCircle, XCircle, Loader, ExternalLink, Search, X
 } from 'lucide-react'
 import { useWallet } from '@/contexts/WalletContext'
-import { useSendTransaction, useBalance } from 'wagmi'
-import { encodeFunctionData, formatUnits } from 'viem'
+import { useSendTransaction } from 'wagmi'
+import { encodeFunctionData } from 'viem'
 
 // ─── INTEGRATOR CONFIG ────────────────────────────────────────────────────────
 const FEE_RECEIVER = '0xYOUR_WALLET_ADDRESS_HERE'
@@ -485,6 +485,33 @@ function TokenModal({ chainName, onSelect, onClose }: {
 }
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+// Public RPC endpoints per Rubic chain name (client-side balance fetching)
+const CHAIN_RPC: Record<string, string> = {
+  ETH:       'https://ethereum-rpc.publicnode.com',
+  BSC:       'https://bsc-rpc.publicnode.com',
+  POLYGON:   'https://polygon-rpc.com',
+  ARBITRUM:  'https://arb1.arbitrum.io/rpc',
+  OPTIMISM:  'https://mainnet.optimism.io',
+  BASE:      'https://mainnet.base.org',
+  AVALANCHE: 'https://api.avax.network/ext/bc/C/rpc',
+  MONAD:     'https://rpc.monad.xyz',
+  FANTOM:    'https://rpc.ftm.tools',
+  GNOSIS:    'https://rpc.gnosischain.com',
+  CELO:      'https://forno.celo.org',
+  LINEA:     'https://rpc.linea.build',
+  SCROLL:    'https://rpc.scroll.io',
+  MANTLE:    'https://rpc.mantle.xyz',
+  BLAST:     'https://rpc.blast.io',
+  ZKSYNC:    'https://mainnet.era.zksync.io',
+  CRONOS:    'https://evm.cronos.org',
+  MOONBEAM:  'https://rpc.api.moonbeam.network',
+  MOONRIVER: 'https://rpc.api.moonriver.moonbeam.network',
+  METIS:     'https://andromeda.metis.io/?owner=1088',
+  KLAYTN:    'https://public-en-baobab.klaytn.net',
+  FUSE:      'https://rpc.fuse.io',
+  KAVA:      'https://evm.kava.io',
+}
+
 const ETH_CHAIN: Chain = { id: 1, name: 'ETH', type: 'EVM' }
 const MONAD_CHAIN: Chain = { id: 143, name: 'MONAD', type: 'EVM' }
 
@@ -509,34 +536,63 @@ export default function SwapPage() {
 
   const [modal, setModal] = useState<'fromToken' | 'toToken' | 'fromChain' | 'toChain' | null>(null)
 
-  // ── Token balance ──────────────────────────────────────────────────────────
-  const isNativeFrom = fromToken.address === NATIVE
-  const { data: nativeBalance }  = useBalance({
-    address: address as `0x${string}` | undefined,
-    query: { enabled: !!address && isNativeFrom },
-  })
-  const { data: erc20Balance } = useBalance({
-    address: address as `0x${string}` | undefined,
-    token: (!isNativeFrom ? fromToken.address : undefined) as `0x${string}` | undefined,
-    query: { enabled: !!address && !isNativeFrom },
-  })
-  const rawBalance = isNativeFrom ? nativeBalance : erc20Balance
-  const fromBalanceFormatted = rawBalance
-    ? Number(formatUnits(rawBalance.value, rawBalance.decimals))
-    : null
-  const fromBalanceDisplay = fromBalanceFormatted !== null
-    ? fromBalanceFormatted < 0.0001 && fromBalanceFormatted > 0
+  // ── Token balance via RPC (works for any chain, no wagmi dependency) ────────
+  const [fromBalance, setFromBalance] = useState<number | null>(null)
+
+  useEffect(() => {
+    setFromBalance(null)
+    if (!address || !isConnected) return
+    const rpc = CHAIN_RPC[fromChain.name]
+    if (!rpc) return
+
+    const controller = new AbortController()
+    const isNative = fromToken.address === NATIVE
+
+    async function fetchBal() {
+      try {
+        let raw: bigint
+        if (isNative) {
+          const res = await fetch(rpc, {
+            method: 'POST', signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getBalance', params: [address, 'latest'] }),
+          })
+          const d = await res.json()
+          raw = BigInt(d.result ?? '0x0')
+        } else {
+          // balanceOf(address) — selector 0x70a08231
+          const padded = address!.replace('0x', '').padStart(64, '0')
+          const res = await fetch(rpc, {
+            method: 'POST', signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              jsonrpc: '2.0', id: 1, method: 'eth_call',
+              params: [{ to: fromToken.address, data: '0x70a08231' + padded }, 'latest'],
+            }),
+          })
+          const d = await res.json()
+          raw = BigInt(d.result && d.result !== '0x' ? d.result : '0x0')
+        }
+        const decimals = fromToken.decimals ?? 18
+        setFromBalance(Number(raw) / Math.pow(10, decimals))
+      } catch { /* aborted or network error — leave null */ }
+    }
+
+    fetchBal()
+    return () => controller.abort()
+  }, [address, isConnected, fromChain.name, fromToken.address, fromToken.decimals])
+
+  const fromBalanceDisplay = fromBalance !== null
+    ? fromBalance < 0.0001 && fromBalance > 0
       ? '<0.0001'
-      : fromBalanceFormatted.toLocaleString('en-US', { maximumFractionDigits: 6 })
+      : fromBalance.toLocaleString('en-US', { maximumFractionDigits: 6 })
     : null
 
   function handleMax() {
-    if (fromBalanceFormatted === null) return
-    // For native tokens, leave a small buffer for gas
-    const maxAmt = isNativeFrom
-      ? Math.max(0, fromBalanceFormatted - 0.001)
-      : fromBalanceFormatted
-    setAmount(maxAmt > 0 ? String(maxAmt) : '')
+    if (fromBalance === null) return
+    const isNative = fromToken.address === NATIVE
+    const maxAmt = isNative ? Math.max(0, fromBalance - 0.001) : fromBalance
+    setAmount(maxAmt > 0 ? maxAmt.toString() : '')
   }
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { sendTransactionAsync } = useSendTransaction()
