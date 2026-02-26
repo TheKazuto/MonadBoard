@@ -588,6 +588,12 @@ const CHAIN_ID: Record<string, number> = {
   MOONBEAM: 1284, MOONRIVER: 1285, METIS: 1088, FUSE: 122, KAVA: 2222,
 }
 
+const USDC_MONAD: Token = {
+  symbol: 'USDC', name: 'USD Coin', decimals: 6,
+  address: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea',
+  logoURI: OVERRIDE_LOGOS.USDC,
+}
+
 const ETH_CHAIN: Chain = { id: 1, name: 'ETH', type: 'EVM' }
 const MONAD_CHAIN: Chain = { id: 143, name: 'MONAD', type: 'EVM' }
 
@@ -598,9 +604,9 @@ export default function SwapPage() {
 
   const [chains, setChains] = useState<Chain[]>([])
   const [fromChain, setFromChain] = useState<Chain>(MONAD_CHAIN)
-  const [toChain,   setToChain]   = useState<Chain>(ETH_CHAIN)
+  const [toChain,   setToChain]   = useState<Chain>(MONAD_CHAIN)
   const [fromToken, setFromToken] = useState<Token>(NATIVE_TOKENS.MONAD)
-  const [toToken,   setToToken]   = useState<Token>(NATIVE_TOKENS.ETH)
+  const [toToken,   setToToken]   = useState<Token>(USDC_MONAD)
   const [amount,    setAmount]    = useState('')
   const [receiver,  setReceiver]  = useState('')
 
