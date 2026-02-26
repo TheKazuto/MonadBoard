@@ -11,8 +11,8 @@ import { ArrowLeftRight, Info, ExternalLink } from 'lucide-react'
 // To register as official cross-chain integrator and unlock higher fee share,
 // contact Rubic BD: https://t.me/RubicPartnership
 //
-const FEE_RECEIVER_ADDRESS = '0xYOUR_WALLET_ADDRESS_HERE'  // ← replace this
-const FEE_PERCENT          = 0.5  // 0.5% per swap
+const FEE_RECEIVER_ADDRESS = '0x31815191b09e3d0f37fef2d61c62487ad3bf327f'  // ← replace this
+const FEE_PERCENT          = 0.2  // 0.2% per swap
 
 declare global {
   interface Window {
