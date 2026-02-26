@@ -1,14 +1,13 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { cachedFetch, getCached } from '@/lib/dataCache'
-import { useWallet } from '@/contexts/WalletContext'
+import { useWallet }    from '@/contexts/WalletContext'
+import { usePortfolio } from '@/contexts/PortfolioContext'
 import { RefreshCw, TrendingUp, TrendingDown, Zap, ExternalLink, AlertCircle } from 'lucide-react'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmtUSD(n: number): string {
   if (!n && n !== 0) return '—'
-  const abs = Math.abs(n)
+  const abs  = Math.abs(n)
   const sign = n < 0 ? '-' : ''
   if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(2)}M`
   if (abs >= 1_000)     return `${sign}$${(abs / 1_000).toFixed(2)}K`
@@ -27,14 +26,14 @@ function fmtApy(n: number | null): string {
 // Health factor styling
 function hfConfig(hf: number | null) {
   if (hf === null || hf === undefined) return null
-  if (hf >= 999) return { label: 'Safe', color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', display: '∞' }
-  if (hf >= 3)   return { label: 'Safe',    color: 'text-emerald-600', bg: 'bg-emerald-50',  border: 'border-emerald-200', display: hf.toFixed(2) }
-  if (hf >= 1.5) return { label: 'Healthy', color: 'text-green-600',   bg: 'bg-green-50',    border: 'border-green-200',   display: hf.toFixed(2) }
-  if (hf >= 1.1) return { label: 'Caution', color: 'text-amber-600',   bg: 'bg-amber-50',    border: 'border-amber-200',   display: hf.toFixed(2) }
-  return          { label: 'Risk',    color: 'text-red-600',    bg: 'bg-red-50',      border: 'border-red-200',     display: hf.toFixed(2) }
+  if (hf >= 999) return { label: 'Safe',    color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', display: '∞'          }
+  if (hf >= 3)   return { label: 'Safe',    color: 'text-emerald-600', bg: 'bg-emerald-50', border: 'border-emerald-200', display: hf.toFixed(2) }
+  if (hf >= 1.5) return { label: 'Healthy', color: 'text-green-600',   bg: 'bg-green-50',   border: 'border-green-200',   display: hf.toFixed(2) }
+  if (hf >= 1.1) return { label: 'Caution', color: 'text-amber-600',   bg: 'bg-amber-50',   border: 'border-amber-200',   display: hf.toFixed(2) }
+  return           { label: 'Risk',    color: 'text-red-600',    bg: 'bg-red-50',     border: 'border-red-200',     display: hf.toFixed(2) }
 }
 
-// PNL badge
+// ─── Badges ───────────────────────────────────────────────────────────────────
 function PnlBadge({ pnl, pnlPct }: { pnl: number | null; pnlPct?: number | null }) {
   if (pnl === null || pnl === undefined) return null
   const isPos = pnl >= 0
@@ -49,7 +48,6 @@ function PnlBadge({ pnl, pnlPct }: { pnl: number | null; pnlPct?: number | null 
   )
 }
 
-// APY badge
 function ApyBadge({ apy, label = 'APY' }: { apy: number | null; label?: string }) {
   const pct = fmtApy(apy)
   if (!pct) return null
@@ -60,7 +58,6 @@ function ApyBadge({ apy, label = 'APY' }: { apy: number | null; label?: string }
   )
 }
 
-// In-range badge for LP positions
 function RangeBadge({ inRange }: { inRange: boolean | null | undefined }) {
   if (inRange === null || inRange === undefined) return null
   return inRange
@@ -68,7 +65,6 @@ function RangeBadge({ inRange }: { inRange: boolean | null | undefined }) {
     : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200">✗ Out of Range</span>
 }
 
-// ─── Type badge ───────────────────────────────────────────────────────────────
 function TypeBadge({ type }: { type: string }) {
   const cfg: Record<string, string> = {
     lending:   'bg-blue-50 text-blue-600 border-blue-200',
@@ -103,26 +99,22 @@ function CardSkeleton() {
   )
 }
 
-// ─── LENDING CARD ─────────────────────────────────────────────────────────────
+// ─── Position Cards ───────────────────────────────────────────────────────────
 function LendingCard({ pos }: { pos: any }) {
-  const hf = hfConfig(pos.healthFactor)
-  const supplyItems = [...(pos.supply ?? []), ...(pos.collateral ?? [])]
-  const borrowItems = pos.borrow ?? []
-  const hasDebt = pos.totalDebtUSD > 0.01
-  const hasCollateral = pos.totalCollateralUSD > 0.01
+  const hf             = hfConfig(pos.healthFactor)
+  const supplyItems    = [...(pos.supply ?? []), ...(pos.collateral ?? [])]
+  const borrowItems    = pos.borrow ?? []
+  const hasDebt        = pos.totalDebtUSD > 0.01
+  const hasCollateral  = pos.totalCollateralUSD > 0.01
 
   return (
     <div className="card p-5 hover:shadow-lg transition-all">
-      {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">
-            {pos.logo}
-          </div>
+          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">{pos.logo}</div>
           <div>
             <div className="font-semibold text-gray-800 text-sm flex items-center gap-1.5">
-              {pos.protocol}
-              <ExternalLink size={11} className="text-gray-300" />
+              {pos.protocol}<ExternalLink size={11} className="text-gray-300" />
             </div>
             {pos.label && <div className="text-xs text-gray-400 mt-0.5">{pos.label}</div>}
           </div>
@@ -137,7 +129,6 @@ function LendingCard({ pos }: { pos: any }) {
         </div>
       </div>
 
-      {/* Supplied */}
       {hasCollateral && (
         <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 mb-2">
           <div className="flex items-center justify-between mb-2">
@@ -160,7 +151,6 @@ function LendingCard({ pos }: { pos: any }) {
         </div>
       )}
 
-      {/* Borrowed */}
       {hasDebt && (
         <div className="rounded-xl bg-red-50 border border-red-100 p-3 mb-2">
           <div className="flex items-center justify-between mb-2">
@@ -183,7 +173,6 @@ function LendingCard({ pos }: { pos: any }) {
         </div>
       )}
 
-      {/* Net + PNL */}
       <div className="flex items-center justify-between pt-2 border-t border-gray-50">
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400">Net Value</span>
@@ -197,19 +186,15 @@ function LendingCard({ pos }: { pos: any }) {
   )
 }
 
-// ─── VAULT CARD ───────────────────────────────────────────────────────────────
 function VaultCard({ pos }: { pos: any }) {
   return (
     <div className="card p-5 hover:shadow-lg transition-all">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">
-            {pos.logo}
-          </div>
+          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">{pos.logo}</div>
           <div>
             <div className="font-semibold text-gray-800 text-sm flex items-center gap-1.5">
-              {pos.protocol}
-              <ExternalLink size={11} className="text-gray-300" />
+              {pos.protocol}<ExternalLink size={11} className="text-gray-300" />
             </div>
             {pos.label && <div className="text-xs text-gray-400 mt-0.5">{pos.label}</div>}
           </div>
@@ -239,19 +224,15 @@ function VaultCard({ pos }: { pos: any }) {
   )
 }
 
-// ─── LIQUIDITY CARD ───────────────────────────────────────────────────────────
 function LiquidityCard({ pos }: { pos: any }) {
   return (
     <div className="card p-5 hover:shadow-lg transition-all">
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">
-            {pos.logo}
-          </div>
+          <div className="w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center text-xl">{pos.logo}</div>
           <div>
             <div className="font-semibold text-gray-800 text-sm flex items-center gap-1.5">
-              {pos.protocol}
-              <ExternalLink size={11} className="text-gray-300" />
+              {pos.protocol}<ExternalLink size={11} className="text-gray-300" />
             </div>
             {pos.label && <div className="text-xs text-gray-400 mt-0.5">{pos.label}</div>}
           </div>
@@ -276,8 +257,6 @@ function LiquidityCard({ pos }: { pos: any }) {
         <div className="text-2xl font-bold text-gray-800">
           {pos.amountUSD > 0 ? fmtUSD(pos.amountUSD) : <span className="text-gray-400 text-base font-medium">No USD data</span>}
         </div>
-
-        {/* Tick range for V3 */}
         {pos.tickLower !== undefined && pos.currentTick !== undefined && (
           <div className="mt-2 pt-2 border-t border-cyan-100">
             <div className="flex justify-between text-xs text-gray-400">
@@ -303,8 +282,16 @@ function LiquidityCard({ pos }: { pos: any }) {
   )
 }
 
-// ─── SUMMARY BANNER ───────────────────────────────────────────────────────────
-function SummaryBanner({ summary, loading }: { summary: any; loading: boolean }) {
+// ─── Summary Banner — reads from PortfolioContext totals ───────────────────────
+function SummaryBanner({
+  netValueUSD, totalDebtUSD, totalSupplyUSD, activeProtocols, loading,
+}: {
+  netValueUSD:     number
+  totalDebtUSD:    number
+  totalSupplyUSD:  number
+  activeProtocols: string[]
+  loading:         boolean
+}) {
   if (loading) {
     return (
       <div className="card p-6">
@@ -314,32 +301,30 @@ function SummaryBanner({ summary, loading }: { summary: any; loading: boolean })
       </div>
     )
   }
+
   const items = [
-    { label: 'Total Supplied',  value: fmtUSD(summary.totalSupplyUSD ?? 0),   color: 'text-emerald-600' },
-    { label: 'Total Borrowed',  value: fmtUSD(summary.totalDebtUSD ?? 0),     color: 'text-red-500' },
-    { label: 'Net DeFi Value',  value: fmtUSD(summary.netValueUSD ?? 0),      color: 'text-violet-700 font-bold text-xl' },
-    { label: 'Active Protocols',value: String(summary.activeProtocols?.length ?? 0), color: 'text-gray-800' },
+    { label: 'Total Supplied',   value: fmtUSD(totalSupplyUSD),             color: 'text-emerald-600' },
+    { label: 'Total Borrowed',   value: fmtUSD(totalDebtUSD),               color: 'text-red-500' },
+    { label: 'Net DeFi Value',   value: fmtUSD(netValueUSD),                color: 'text-violet-700 font-bold text-xl' },
+    { label: 'Active Protocols', value: String(activeProtocols.length ?? 0), color: 'text-gray-800' },
   ]
+
   return (
     <div className="card overflow-hidden">
-      {/* Purple gradient header */}
       <div className="px-6 pt-5 pb-4" style={{ background: 'linear-gradient(135deg, #836EF9 0%, #6d28d9 100%)' }}>
         <p className="text-violet-200 text-xs font-medium uppercase tracking-wide mb-1">Total DeFi Value</p>
         <div className="flex items-end gap-3">
           <p className="font-display text-4xl font-bold text-white" style={{ fontFamily: 'Sora, sans-serif' }}>
-            {fmtUSD(summary.netValueUSD ?? 0)}
+            {fmtUSD(netValueUSD)}
           </p>
-          {summary.totalDebtUSD > 0 && (
-            <p className="text-violet-300 text-sm pb-1">after {fmtUSD(summary.totalDebtUSD)} debt</p>
+          {totalDebtUSD > 0 && (
+            <p className="text-violet-300 text-sm pb-1">after {fmtUSD(totalDebtUSD)} debt</p>
           )}
         </div>
-        {summary.activeProtocols?.length > 0 && (
-          <p className="text-violet-300 text-xs mt-1">
-            {summary.activeProtocols.join(' · ')}
-          </p>
+        {activeProtocols.length > 0 && (
+          <p className="text-violet-300 text-xs mt-1">{activeProtocols.join(' · ')}</p>
         )}
       </div>
-      {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-y md:divide-y-0 divide-gray-100">
         {items.map((item, i) => (
           <div key={i} className="px-5 py-4">
@@ -352,75 +337,55 @@ function SummaryBanner({ summary, loading }: { summary: any; loading: boolean })
   )
 }
 
-// ─── PROTOCOLS FOOTER ────────────────────────────────────────────────────────
+// ─── Protocols list — single shared component to avoid duplication ─────────────
 const PROTOCOLS = [
-  { name: 'Neverland',      url: 'https://app.neverland.money',      logo: '🌙' },
-  { name: 'Morpho',         url: 'https://app.morpho.org',           logo: '🦋' },
-  { name: 'Uniswap V3',     url: 'https://app.uniswap.org',          logo: '🦄' },
-  { name: 'PancakeSwap V3', url: 'https://pancakeswap.finance',      logo: '🥞' },
-  { name: 'Curve',          url: 'https://curve.fi/#/monad',         logo: '🌊' },
-  { name: 'Gearbox',        url: 'https://app.gearbox.fi',           logo: '⚙️' },
-  { name: 'Upshift',        url: 'https://app.upshift.finance',      logo: '🔺' },
-  { name: 'Kintsu',         url: 'https://kintsu.xyz',               logo: '🔵' },
-  { name: 'Magma',          url: 'https://magmastaking.xyz',         logo: '🐲' },
-  { name: 'shMonad',        url: 'https://shmonad.xyz',              logo: '⚡' },
-  { name: 'Lagoon',         url: 'https://app.lagoon.finance',       logo: '🏝️' },
-  { name: 'Renzo',          url: 'https://app.renzoprotocol.com',    logo: '🔴' },
-  { name: 'Kuru',           url: 'https://app.kuru.io',              logo: '🌀' },
-  { name: 'Curvance',       url: 'https://monad.curvance.com',       logo: '💎' },
-  { name: 'Euler V2',       url: 'https://app.euler.finance',        logo: '📐' },
-  { name: 'Midas',          url: 'https://midas.app',                logo: '🏛️' },
+  { name: 'Neverland',      url: 'https://app.neverland.money',           logo: '🌙' },
+  { name: 'Morpho',         url: 'https://app.morpho.org/monad/earn',     logo: '🦋' },
+  { name: 'Uniswap V3',     url: 'https://app.uniswap.org',               logo: '🦄' },
+  { name: 'PancakeSwap V3', url: 'https://pancakeswap.finance',           logo: '🥞' },
+  { name: 'Curve',          url: 'https://curve.fi/#/monad',              logo: '🌊' },
+  { name: 'Gearbox',        url: 'https://app.gearbox.fi',                logo: '⚙️' },
+  { name: 'Upshift',        url: 'https://app.upshift.finance',           logo: '🔺' },
+  { name: 'Kintsu',         url: 'https://kintsu.xyz',                    logo: '🔵' },
+  { name: 'Magma',          url: 'https://magmastaking.xyz',              logo: '🐲' },
+  { name: 'shMonad',        url: 'https://shmonad.xyz',                   logo: '⚡' },
+  { name: 'Lagoon',         url: 'https://app.lagoon.finance',            logo: '🏝️' },
+  { name: 'Renzo',          url: 'https://app.renzoprotocol.com',         logo: '🔴' },
+  { name: 'Kuru',           url: 'https://www.kuru.io/',                  logo: '🌀' },
+  { name: 'Curvance',       url: 'https://app.curvance.com',              logo: '💎' },
+  { name: 'Euler V2',       url: 'https://app.euler.finance',             logo: '📐' },
+  { name: 'Midas',          url: 'https://midas.app',                     logo: '🏛️' },
 ]
 
-// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+function ProtocolsList({ textColor = 'text-gray-500', justify = '' }: { textColor?: string; justify?: string }) {
+  return (
+    <div className={`flex flex-wrap gap-2 ${justify}`}>
+      {PROTOCOLS.map(p => (
+        <a key={p.name} href={p.url} target="_blank" rel="noopener noreferrer"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-100 bg-white hover:border-violet-300 hover:bg-violet-50 text-xs ${textColor} hover:text-violet-700 transition-colors`}>
+          {p.logo} {p.name}
+        </a>
+      ))}
+    </div>
+  )
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function DefiPage() {
-  const { address, stableAddress, isConnected } = useWallet()
-  const [data, setData]         = useState<any>(null)
-  const [loading, setLoading]   = useState(false)
-  const [error, setError]       = useState<string | null>(null)
-  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
+  const { isConnected }                          = useWallet()
+  const { totals, status, lastUpdated, refresh } = usePortfolio()
 
-  const load = useCallback(async (force = false) => {
-    if (!stableAddress) return
-    // Show cached data immediately if available
-    const cached = getCached<any>('/api/defi', stableAddress)
-    if (cached) { setData(cached); setLoading(false) }
-    if (cached && !force) return
-    setLoading(true); setError(null)
-    try {
-      const json = await cachedFetch<any>('/api/defi', stableAddress, force)
-      setData(json)
-      setUpdatedAt(new Date())
-    } catch (e: any) {
-      setError(e.message ?? 'Unknown error')
-    } finally { setLoading(false) }
-  }, [stableAddress])
-
-  useEffect(() => { if (stableAddress) load() }, [stableAddress, load])
-
-  const positions  = data?.positions ?? []
-  const summary    = data?.summary   ?? {}
+  const isLoading  = status === 'loading'
+  const hasData    = status === 'partial' || status === 'done'
+  const isError    = status === 'error'
+  const positions  = totals.defiPositions
   const lending    = positions.filter((p: any) => p.type === 'lending')
   const vaults     = positions.filter((p: any) => p.type === 'vault')
   const liquidity  = positions.filter((p: any) => p.type === 'liquidity')
 
-  // ── Not connected ──
-  if (!isConnected) {
-    return (
-      <div className="page-content max-w-4xl mx-auto px-4 py-8">
-        <div className="card p-12 text-center">
-          <div className="w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center mx-auto mb-4">
-            <Zap className="text-violet-500" size={28} />
-          </div>
-          <h2 className="text-lg font-bold text-gray-800 mb-2">Connect your wallet</h2>
-          <p className="text-gray-400 text-sm">Connect to view your DeFi positions across Monad protocols.</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="page-content max-w-6xl mx-auto px-4 py-6">
+
       {/* ── Page Header ── */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -428,64 +393,74 @@ export default function DefiPage() {
             DeFi Positions
           </h1>
           <p className="text-gray-400 text-sm mt-0.5">
-            16 protocols monitored on Monad
+            {PROTOCOLS.length} protocols monitored on Monad
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {updatedAt && !loading && (
+          {lastUpdated && !isLoading && (
             <span className="text-xs text-gray-400">
-              {updatedAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              {lastUpdated.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
             </span>
           )}
           <button
-            onClick={load}
-            disabled={loading}
+            onClick={refresh}
+            disabled={isLoading}
             className="btn-primary flex items-center gap-2 text-sm py-2 px-4 disabled:opacity-60"
           >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            {loading ? 'Loading...' : 'Refresh'}
+            <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
+            {isLoading ? 'Loading...' : 'Refresh'}
           </button>
         </div>
       </div>
 
+      {/* ── Not connected ── */}
+      {!isConnected && (
+        <div className="card p-12 text-center">
+          <div className="w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center mx-auto mb-4">
+            <Zap className="text-violet-500" size={28} />
+          </div>
+          <h2 className="text-lg font-bold text-gray-800 mb-2">Connect your wallet</h2>
+          <p className="text-gray-400 text-sm">Connect to view your DeFi positions across Monad protocols.</p>
+        </div>
+      )}
+
       {/* ── Error ── */}
-      {error && (
+      {isError && (
         <div className="mb-4 flex items-center gap-2 p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm">
           <AlertCircle size={15} />
-          {error}
+          Failed to load DeFi positions. Try refreshing.
         </div>
       )}
 
       {/* ── Summary banner ── */}
-      {(data || loading) && (
+      {isConnected && (isLoading || hasData) && (
         <div className="mb-6">
-          <SummaryBanner summary={summary} loading={loading && !data} />
+          <SummaryBanner
+            netValueUSD={totals.defiNetValueUSD}
+            totalDebtUSD={totals.defiTotalDebtUSD}
+            totalSupplyUSD={totals.defiTotalSupplyUSD}
+            activeProtocols={totals.defiActiveProtocols}
+            loading={isLoading && positions.length === 0}
+          />
         </div>
       )}
 
       {/* ── Loading skeletons ── */}
-      {loading && !data && (
+      {isConnected && isLoading && positions.length === 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[1,2,3,4].map(i => <CardSkeleton key={i} />)}
         </div>
       )}
 
       {/* ── Empty state ── */}
-      {!loading && data && positions.length === 0 && (
+      {isConnected && !isLoading && positions.length === 0 && (
         <div className="card p-10 text-center">
           <div className="text-4xl mb-3">🌐</div>
           <h2 className="text-base font-bold text-gray-800 mb-1">No positions found</h2>
           <p className="text-gray-400 text-sm mb-6">
             Start using the protocols below to see your positions here.
           </p>
-          <div className="flex flex-wrap gap-2 justify-center">
-            {PROTOCOLS.map(p => (
-              <a key={p.name} href={p.url} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-100 bg-white hover:border-violet-300 hover:bg-violet-50 text-xs text-gray-600 hover:text-violet-700 transition-colors">
-                {p.logo} {p.name}
-              </a>
-            ))}
-          </div>
+          <ProtocolsList textColor="text-gray-600" justify="justify-center" />
         </div>
       )}
 
@@ -494,12 +469,8 @@ export default function DefiPage() {
         <section className="mb-6">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-base">🏦</span>
-            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
-              Lending
-            </h2>
-            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">
-              {lending.length}
-            </span>
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Lending</h2>
+            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">{lending.length}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {lending.map((pos: any, i: number) => <LendingCard key={i} pos={pos} />)}
@@ -512,12 +483,8 @@ export default function DefiPage() {
         <section className="mb-6">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-base">🏺</span>
-            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
-              Vaults & Staking
-            </h2>
-            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">
-              {vaults.length}
-            </span>
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Vaults & Staking</h2>
+            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">{vaults.length}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {vaults.map((pos: any, i: number) => <VaultCard key={i} pos={pos} />)}
@@ -530,12 +497,8 @@ export default function DefiPage() {
         <section className="mb-6">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-base">💧</span>
-            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">
-              Liquidity Pools
-            </h2>
-            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">
-              {liquidity.length}
-            </span>
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Liquidity Pools</h2>
+            <span className="text-xs text-gray-400 font-medium bg-gray-100 px-2 py-0.5 rounded-full">{liquidity.length}</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {liquidity.map((pos: any, i: number) => <LiquidityCard key={i} pos={pos} />)}
@@ -544,19 +507,12 @@ export default function DefiPage() {
       )}
 
       {/* ── Protocols footer ── */}
-      {positions.length > 0 && (
+      {isConnected && positions.length > 0 && (
         <div className="card p-4 mt-2">
           <p className="text-xs text-gray-400 font-medium uppercase tracking-wide mb-3">
             Supported Protocols
           </p>
-          <div className="flex flex-wrap gap-2">
-            {PROTOCOLS.map(p => (
-              <a key={p.name} href={p.url} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-100 bg-white hover:border-violet-300 hover:bg-violet-50 text-xs text-gray-500 hover:text-violet-700 transition-colors">
-                {p.logo} {p.name}
-              </a>
-            ))}
-          </div>
+          <ProtocolsList />
         </div>
       )}
     </div>
