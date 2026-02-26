@@ -10,7 +10,7 @@ import { useSendTransaction, useChainId, useSwitchChain } from 'wagmi'
 import { encodeFunctionData } from 'viem'
 
 // ─── INTEGRATOR CONFIG ────────────────────────────────────────────────────────
-const FEE_RECEIVER = '0xYOUR_WALLET_ADDRESS_HERE'
+const FEE_RECEIVER = '0x31815191b09e3D0F37FEF2d61c62487AD3bF327F'
 const FEE_PERCENT  = 0.2
 const REFERRER     = 'monboard.xyz'
 const NATIVE       = '0x0000000000000000000000000000000000000000'
