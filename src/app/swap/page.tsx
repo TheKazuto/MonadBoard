@@ -835,7 +835,7 @@ export default function SwapPage() {
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-purple-700 flex items-center justify-center shadow-lg shadow-violet-200">
             <ArrowLeftRight size={17} className="text-white" />
           </div>
-          <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>Swap</h1>
+          <h1 className="font-bold text-2xl text-gray-900" style={{ fontFamily: 'Sora, sans-serif' }}>Cross-chain Swap</h1>
         </div>
         <p className="text-sm text-gray-500 ml-12">
           Cross-chain swaps across {chains.length > 0 ? `${chains.length}+` : '70+'} chains · Best rate from 360+ DEXes &amp; bridges
