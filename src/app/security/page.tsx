@@ -254,8 +254,15 @@ export default function SecurityPage() {
       {isConnected && loading && (
         <div className="card p-10 text-center">
           <RefreshCw size={28} className="text-violet-400 mx-auto mb-3 animate-spin" />
-          <p className="text-gray-600 font-medium">Scanning approvals on {CHAINS.find(c => c.key === selectedChain)?.name}…</p>
-          <p className="text-sm text-gray-400 mt-1">Checking on-chain allowances and NFT permissions</p>
+          <p className="text-gray-600 font-medium">Scanning all approvals on {CHAINS.find(c => c.key === selectedChain)?.name}…</p>
+          <p className="text-sm text-gray-400 mt-1">Reading full on-chain history from block 0 — this may take 10–30 seconds</p>
+          <div className="mt-4 flex items-center justify-center gap-2 text-xs text-gray-400">
+            <span className="w-2 h-2 rounded-full bg-violet-400 animate-pulse" />
+            Scanning ERC-20 Approval events
+            <span className="mx-1">·</span>
+            <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" style={{animationDelay:'0.3s'}} />
+            Scanning NFT ApprovalForAll events
+          </div>
         </div>
       )}
 
