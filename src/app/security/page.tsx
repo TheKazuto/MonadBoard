@@ -51,10 +51,10 @@ const MONAD_CHAIN = {
 //   'rpc'       = chunked eth_getLogs from block 0 (Monad only)
 interface ChainCfg {
   key: string; label: string; chainId: number; color: string
-  viemChain: any; rpc: string; explorer: string; logoSlug: string
+  viemChain: any; rpc: string; rpcFallback?: string; explorer: string; logoSlug: string
   scanMode: 'etherscan' | 'rpc'
-  etherscanApi?: string  // only for scanMode='etherscan'
-  rpcChunkSize?: number  // only for scanMode='rpc'
+  etherscanApi?: string
+  rpcChunkSize?: number
 }
 
 // Etherscan V2 supports all EVM chains via chainid param
@@ -77,7 +77,7 @@ const CHAIN_CONFIGS: ChainCfg[] = [
   },
   {
     key: 'BSC', label: 'BSC', chainId: 56, color: '#F3BA2F',
-    viemChain: bsc, rpc: 'https://bsc.llamarpc.com',
+    viemChain: bsc, rpc: 'https://binance.llamarpc.com', rpcFallback: 'https://bsc-dataseed4.ninicoin.io',
     explorer: 'https://bscscan.com', logoSlug: 'binance',
     scanMode: 'etherscan', etherscanApi: ES_V2(56),
   },
@@ -101,7 +101,7 @@ const CHAIN_CONFIGS: ChainCfg[] = [
   },
   {
     key: 'BASE', label: 'Base', chainId: 8453, color: '#0052FF',
-    viemChain: base, rpc: 'https://base.llamarpc.com',
+    viemChain: base, rpc: 'https://base-rpc.publicnode.com', rpcFallback: 'https://base.gateway.tenderly.co',
     explorer: 'https://basescan.org', logoSlug: 'base',
     scanMode: 'etherscan', etherscanApi: ES_V2(8453),
   },
@@ -246,11 +246,13 @@ async function scanApprovals(
   const cfg = CHAIN_CONFIGS.find(c => c.key === chainKey)
   if (!cfg) return []
 
-  const client = createPublicClient({
+  // Try primary RPC, fall back if it fails
+  const makeRpcClient = (rpc: string) => createPublicClient({
     chain: cfg.viemChain,
-    transport: http(cfg.rpc, { timeout: 30_000 }),
-    batch: { multicall: { wait: 16 } },
+    transport: http(rpc, { timeout: 30_000, retryCount: 2, retryDelay: 500 }),
+    batch: { multicall: { wait: 32 } },
   })
+  let client = makeRpcClient(cfg.rpc)
 
   let erc20Logs: any[] = []
   let nftLogs:   any[] = []
@@ -278,6 +280,17 @@ async function scanApprovals(
   }
 
   if (signal.aborted) return []
+
+  // If we got logs but readContract might fail, test RPC health and switch to fallback if needed
+  if (cfg.rpcFallback && (erc20Logs.length + nftLogs.length) > 0) {
+    try {
+      await client.getBlockNumber()
+    } catch {
+      console.warn(`[approvals] Primary RPC failed, switching to fallback: ${cfg.rpcFallback}`)
+      client = makeRpcClient(cfg.rpcFallback)
+    }
+  }
+
   onProgress(`Found ${erc20Logs.length} ERC-20 + ${nftLogs.length} NFT approval events. Verifying on-chain…`)
 
   // ── Deduplicate: keep latest log per (token, spender) pair ───────────────
@@ -458,8 +471,23 @@ export default function SecurityPage() {
     setRevoking(key); setTxError(null); setTxSuccess(null)
     const targetCfg = CHAIN_CONFIGS.find(c => c.key === approval.chainKey)
     if (targetCfg && connectedChainId !== targetCfg.chainId) {
-      try { await switchChain({ chainId: targetCfg.chainId }); await new Promise(r => setTimeout(r, 1500)) }
-      catch { setTxError(`Switch to ${targetCfg.label} manually`); setRevoking(null); return }
+      try {
+        await switchChain({ chainId: targetCfg.chainId })
+        // Wait until the wallet actually switches — poll useChainId up to 15s
+        const deadline = Date.now() + 15_000
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 300))
+          // Re-read chainId from window.ethereum directly (most reliable)
+          try {
+            const hex = await (window as any).ethereum?.request({ method: 'eth_chainId' })
+            if (hex && parseInt(hex, 16) === targetCfg.chainId) break
+          } catch { /* ignore */ }
+        }
+      } catch (e: any) {
+        setTxError(`Please switch to ${targetCfg.label} in your wallet`)
+        setRevoking(null)
+        return
+      }
     }
     try {
       if (approval.type === 'ERC-20') {
