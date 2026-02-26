@@ -69,8 +69,11 @@ const COINGECKO_PLATFORM: Record<string, string> = {
   MONAD:     'monad',   // served via GeckoTerminal (not CoinGecko token list)
 }
 
-// TrustWallet blockchain slug for chain logo
+// ─── LOGO CDN SOURCES ────────────────────────────────────────────────────────
 const TW_BASE = 'https://raw.githubusercontent.com/trustwallet/assets/master/blockchains'
+const UNI_BASE = 'https://raw.githubusercontent.com/Uniswap/assets/master/blockchains'
+
+// TrustWallet chain slug mapping
 const TW_CHAIN_SLUG: Record<string, string> = {
   ETH: 'ethereum', BSC: 'smartchain', POLYGON: 'polygon',
   AVALANCHE: 'avalanche', ARBITRUM: 'arbitrum', OPTIMISM: 'optimism',
@@ -78,16 +81,19 @@ const TW_CHAIN_SLUG: Record<string, string> = {
   GNOSIS: 'xdai', CELO: 'celo', HARMONY: 'harmony', MOONBEAM: 'moonbeam',
   MOONRIVER: 'moonriver', AURORA: 'aurora', BOBA: 'boba', METIS: 'metis',
   LINEA: 'linea', ZKSYNC: 'zksync', SCROLL: 'scroll', MANTLE: 'mantle',
+  BLAST: 'blast',
 }
 
-// CoinGecko CDN for special tokens
+// CoinGecko CDN overrides for well-known tokens by symbol
 const CG = 'https://assets.coingecko.com/coins/images'
 const OVERRIDE_LOGOS: Record<string, string> = {
   ETH:  `${CG}/279/small/ethereum.png`,
+  WETH: `${CG}/2518/small/weth.png`,
   USDC: `${CG}/6319/small/usdc.png`,
   USDT: `${CG}/325/small/tether.png`,
   WBTC: `${CG}/7598/small/wrapped_bitcoin_new.png`,
   BNB:  `${CG}/825/small/bnb-icon2_2x.png`,
+  WBNB: `${CG}/825/small/bnb-icon2_2x.png`,
   POL:  `${CG}/4713/small/polygon-ecosystem-token.png`,
   MATIC:`${CG}/4713/small/polygon-ecosystem-token.png`,
   AVAX: `${CG}/12559/small/Avalanche_Circle_RedWhite_Trans.png`,
@@ -99,6 +105,65 @@ const OVERRIDE_LOGOS: Record<string, string> = {
   FTM:  `${CG}/4001/small/fantom.png`,
   NEAR: `${CG}/10365/small/near.jpg`,
   ATOM: `${CG}/1481/small/cosmos_hub.png`,
+  DAI:  `${CG}/9956/small/Badge_Dai.png`,
+  LINK: `${CG}/877/small/chainlink-new-logo.png`,
+  UNI:  `${CG}/12504/small/uniswap-logo.png`,
+  AAVE: `${CG}/12645/small/AAVE.png`,
+  CRV:  `${CG}/12124/small/Curve.png`,
+  MKR:  `${CG}/1364/small/Mark_Maker.png`,
+  SNX:  `${CG}/3408/small/SNX.png`,
+  COMP: `${CG}/10775/small/COMP.png`,
+  GRT:  `${CG}/13397/small/Graph_Token.png`,
+  LDO:  `${CG}/13573/small/Lido_DAO.png`,
+  RPL:  `${CG}/2090/small/rocket_pool__rpl_.png`,
+  DOGE: `${CG}/5/small/dogecoin.png`,
+  SHIB: `${CG}/11939/small/shiba.png`,
+  PEPE: `${CG}/29850/small/pepe-token.jpeg`,
+  TRX:  `${CG}/1094/small/tron-logo.png`,
+  TON:  `${CG}/17980/small/ton_symbol.png`,
+  SUI:  `${CG}/26375/small/sui_asset.jpeg`,
+  APT:  `${CG}/26455/small/aptos_round.png`,
+  INJ:  `${CG}/23182/small/injective.jpeg`,
+  SEI:  `${CG}/28205/small/Sei_Logo_-_Transparent.png`,
+  TIA:  `${CG}/31967/small/celestia.jpg`,
+}
+
+// Build ordered list of logo URLs to try for a token
+function buildLogoUrls(token: Token, chainName: string): string[] {
+  const urls: string[] = []
+  const symUpper = token.symbol.toUpperCase()
+  const addr = token.address
+  const isNative = addr === NATIVE
+
+  // 1. Symbol override (CoinGecko CDN for well-known tokens) — most reliable
+  if (OVERRIDE_LOGOS[symUpper]) urls.push(OVERRIDE_LOGOS[symUpper])
+
+  // 2. logoURI from the token list (CoinGecko token list or GeckoTerminal image_url)
+  if (token.logoURI && token.logoURI !== '' && !token.logoURI.includes('missing')) {
+    urls.push(token.logoURI)
+  }
+
+  // Skip address-based CDNs for native tokens (address is 0x000...000)
+  if (!isNative && addr && addr.length === 42) {
+    const twSlug = TW_CHAIN_SLUG[chainName]
+
+    // 3. 1inch token logo CDN — covers ETH, BSC, Polygon, Arbitrum, Optimism, Base etc.
+    // Massive coverage: ~100k tokens, just needs lowercase address
+    urls.push(`https://tokens.1inch.io/${addr.toLowerCase()}.png`)
+
+    // 4. TrustWallet by contract address
+    if (twSlug) {
+      urls.push(`${TW_BASE}/${twSlug}/assets/${addr}/logo.png`)
+    }
+
+    // 5. Uniswap assets repo
+    if (twSlug) {
+      urls.push(`${UNI_BASE}/${twSlug}/assets/${addr}/logo.png`)
+    }
+  }
+
+  // Deduplicate while preserving order
+  return [...new Set(urls.filter(Boolean))]
 }
 
 // Native tokens per chain
@@ -122,23 +187,53 @@ function chainLogoUrl(chainName: string): string {
   return ''
 }
 
-// ─── IMAGE WITH FALLBACK ─────────────────────────────────────────────────────
-function TokenImage({ src, symbol, size = 28 }: { src: string; symbol: string; size?: number }) {
-  const [err, setErr] = useState(false)
-  if (err || !src) {
+// ─── IMAGE WITH MULTI-SOURCE FALLBACK ────────────────────────────────────────
+// Tries each URL in sequence; moves to next on error; shows initials avatar as last resort
+function TokenImage({
+  token, chainName, src, symbol, size = 28
+}: {
+  token?: Token; chainName?: string; src?: string; symbol: string; size?: number
+}) {
+  const urls: string[] = token && chainName
+    ? buildLogoUrls(token, chainName)
+    : src ? [src] : []
+
+  const [idx, setIdx] = useState(0)
+  // Reset index when the token changes
+  const keyRef = useRef(symbol + (token?.address ?? src ?? ''))
+  const currentKey = symbol + (token?.address ?? src ?? '')
+  if (keyRef.current !== currentKey) {
+    keyRef.current = currentKey
+    // Can't call setState during render, so we use a different approach:
+    // The key prop on the img element will force remount
+  }
+
+  const currentSrc = urls[idx]
+
+  if (!currentSrc || idx >= urls.length) {
     const hue = [...symbol].reduce((h, c) => c.charCodeAt(0) + ((h << 5) - h), 0)
     const bg = `hsl(${((hue % 360) + 360) % 360}, 60%, 50%)`
     return (
       <div className="rounded-full flex items-center justify-center text-white font-bold shrink-0"
         style={{ width: size, height: size, background: bg, fontSize: size * 0.38 }}>
-        {symbol.slice(0, 2)}
+        {symbol.slice(0, 2).toUpperCase()}
       </div>
     )
   }
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt={symbol} width={size} height={size}
-    className="rounded-full object-cover shrink-0" style={{ width: size, height: size }}
-    onError={() => setErr(true)} />
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      key={currentKey + idx}
+      src={currentSrc}
+      alt={symbol}
+      width={size}
+      height={size}
+      className="rounded-full object-cover shrink-0"
+      style={{ width: size, height: size }}
+      onError={() => setIdx(i => i + 1)}
+    />
+  )
 }
 
 // ─── API HELPERS ──────────────────────────────────────────────────────────────
@@ -356,7 +451,7 @@ function TokenModal({ chainName, onSelect, onClose }: {
           {!loading && filtered.map(token => (
             <button key={token.address} onClick={() => { onSelect(token); onClose() }}
               className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-violet-50 transition-colors text-left">
-              <TokenImage src={token.logoURI} symbol={token.symbol} size={36} />
+              <TokenImage token={token} chainName={chainName} symbol={token.symbol} size={36} />
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-gray-800">{token.symbol}</p>
                 <p className="text-xs text-gray-400 truncate">{token.name}</p>
@@ -508,7 +603,7 @@ export default function SwapPage() {
           <div className="flex items-center gap-3">
             <button onClick={() => setModal('fromToken')}
               className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-gray-200 hover:border-violet-300 hover:bg-violet-50 transition-colors shrink-0">
-              <TokenImage src={fromToken.logoURI} symbol={fromToken.symbol} size={24} />
+              <TokenImage token={fromToken} chainName={fromChain.name} symbol={fromToken.symbol} size={24} />
               <span className="font-semibold text-gray-800 text-sm">{fromToken.symbol}</span>
               <ChevronDown size={13} className="text-gray-400" />
             </button>
@@ -540,7 +635,7 @@ export default function SwapPage() {
           <div className="flex items-center gap-3">
             <button onClick={() => setModal('toToken')}
               className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-gray-200 hover:border-violet-300 hover:bg-violet-50 transition-colors shrink-0">
-              <TokenImage src={toToken.logoURI} symbol={toToken.symbol} size={24} />
+              <TokenImage token={toToken} chainName={toChain.name} symbol={toToken.symbol} size={24} />
               <span className="font-semibold text-gray-800 text-sm">{toToken.symbol}</span>
               <ChevronDown size={13} className="text-gray-400" />
             </button>
