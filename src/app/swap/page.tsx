@@ -590,7 +590,7 @@ const CHAIN_ID: Record<string, number> = {
 
 const USDC_MONAD: Token = {
   symbol: 'USDC', name: 'USD Coin', decimals: 6,
-  address: '0xf817257fed379853cDe0fa4F97AB987181B1E5Ea',
+  address: '0x754704bc059f8c67012fed69bc8a327a5aafb603',
   logoURI: OVERRIDE_LOGOS.USDC,
 }
 
