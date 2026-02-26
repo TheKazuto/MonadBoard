@@ -64,7 +64,7 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
-function Skeleton() {
+function Skeleton({ onRefresh }: { onRefresh?: () => void }) {
   return (
     <div className="card p-5 animate-pulse">
       <div className="flex items-center justify-between mb-4">
@@ -72,7 +72,17 @@ function Skeleton() {
           <div className="h-4 w-36 bg-gray-100 rounded mb-2" />
           <div className="h-3 w-24 bg-gray-100 rounded" />
         </div>
-        <div className="h-8 w-40 bg-gray-100 rounded-lg" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onRefresh}
+            disabled={!onRefresh}
+            className="p-1 rounded-md text-gray-300 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+            title="Refresh data"
+          >
+            <RefreshCw size={13} className="animate-spin text-violet-300" />
+          </button>
+          <div className="h-8 w-40 bg-gray-100 rounded-lg" />
+        </div>
       </div>
       <div className="h-48 bg-gray-50 rounded-xl" />
     </div>
@@ -150,17 +160,29 @@ export default function PortfolioHistory() {
   }
 
   // ── Loading (first load) ────────────────────────────────────────────────────
-  if (loading[range] && !data[range]) return <Skeleton />
+  if (loading[range] && !data[range]) return <Skeleton onRefresh={() => fetchRange(range, true)} />
 
   // ── Error ────────────────────────────────────────────────────────────────────
   if (error && !data[range]) {
     return (
       <div className="card p-5">
-        <h3 className="font-semibold text-gray-800 mb-4" style={{ fontFamily: 'Sora, sans-serif' }}>Token Portfolio History</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-800" style={{ fontFamily: 'Sora, sans-serif' }}>Token Portfolio History</h3>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => fetchRange(range, true)}
+              className="p-1 rounded-md text-gray-400 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+              title="Refresh data"
+            >
+              <RefreshCw size={13} />
+            </button>
+            <RangeSelector range={range} setRange={setRange} />
+          </div>
+        </div>
         <div className="flex flex-col items-center justify-center py-10 gap-3">
           <p className="text-sm text-red-400">Failed to load portfolio history</p>
           <button
-            onClick={() => fetchRange(range)}
+            onClick={() => fetchRange(range, true)}
             className="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-1"
           >
             <RefreshCw size={12} /> Try again
