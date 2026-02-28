@@ -98,7 +98,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
         // Deduplicate by hash (keep first occurrence)
         .filter((tx: Transaction, i: number, arr: Transaction[]) => arr.findIndex((t: Transaction) => t.hash === tx.hash) === i)
         // Always sort newest first — stable order, never shuffles on re-render
-        .sort((a, b) => b.timestamp - a.timestamp)
+        .sort((a: Transaction, b: Transaction) => b.timestamp - a.timestamp)
 
       setTransactions(enriched)
       setLastUpdated(new Date())
