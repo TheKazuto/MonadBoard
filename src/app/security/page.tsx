@@ -228,7 +228,7 @@ export default function SecurityPage() {
     abortRef.current = ctrl
     setLoading(true); setError(null); setApprovals([]); setRevoked(new Set()); setProgress('')
     try {
-      const list = await scanMonadApprovals(address, setProgress, ctrl.signal)
+      const list = await scanMonadApprovals(address as `0x${string}`, setProgress, ctrl.signal)
       if (!ctrl.signal.aborted) setApprovals(list)
     } catch (e: any) {
       if (e.name !== 'AbortError') setError(e.message ?? 'Scan failed')
