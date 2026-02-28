@@ -8,18 +8,9 @@ export const revalidate = 0
 // Now only URLs from an explicit allowlist of trusted IPFS/metadata hosts are fetched.
 
 /** Trusted hosts allowed for NFT metadata and image fetching */
-const ALLOWED_META_HOSTS = new Set([
-  'ipfs.io',
-  'gateway.pinata.cloud',
-  'cloudflare-ipfs.com',
-  'dweb.link',
-  'arweave.net',
-  'nftstorage.link',
-  'api.nft.storage',
-  'metadata.ens.domains',
-  'raw.githubusercontent.com',
-  'api-mainnet.magiceden.dev',
-])
+// Removed the strict allowlist — NFT metadata is hosted on hundreds of different
+// CDNs and custom domains. Blocking by host was too restrictive and broke all NFTs.
+// Real SSRF protection is the combination of: HTTPS-only + private IP blocking below.
 
 /** Private / link-local IP ranges that must never be fetched (SSRF protection) */
 const PRIVATE_IP_RE = /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|169\.254\.|::1|fc00:|fd)/
@@ -27,12 +18,13 @@ const PRIVATE_IP_RE = /^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|127\.|169\.25
 function isSafeMetaUrl(raw: string): boolean {
   try {
     const u = new URL(raw)
-    // Only HTTPS (after IPFS resolution) — block file:, data:, javascript:, ftp:
+    // Only HTTPS — blocks file:, data:, javascript:, ftp:, http:
     if (u.protocol !== 'https:') return false
-    // Block private IP ranges (SSRF)
+    // Block private/internal IP ranges (core SSRF protection)
     if (PRIVATE_IP_RE.test(u.hostname)) return false
-    // Allowlist check
-    return ALLOWED_META_HOSTS.has(u.hostname)
+    // Block localhost by name
+    if (u.hostname === 'localhost' || u.hostname.endsWith('.local')) return false
+    return true
   } catch {
     return false
   }
@@ -172,8 +164,11 @@ async function fetchFloorPrices(_address: string, contracts: string[]): Promise<
       const body = await r.json() as Record<string, unknown>
       const items = (body?.assets as unknown[]) ?? []
       if (!items.length) return
-      const floorAsk = (items[0] as Record<string, unknown>)?.floorAsk as Record<string, unknown>
-      const floor = Number((floorAsk?.price as Record<string,unknown>)?.amount as Record<string,unknown>)
+      const item0    = items[0] as Record<string, unknown>
+      const floorAsk = item0?.floorAsk as Record<string, unknown> | undefined
+      const price    = floorAsk?.price as Record<string, unknown> | undefined
+      const amount   = price?.amount   as Record<string, unknown> | undefined
+      const floor    = Number(amount?.native ?? 0)
       if (floor > 0) floorMap[contract] = floor
     } catch { /* ignore per-collection errors */ }
   }))
