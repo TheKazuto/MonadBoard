@@ -7,8 +7,10 @@
 const CSP = [
   "default-src 'self'",
 
-  // Scripts: self + AdSense only — NO unsafe-eval, NO unsafe-inline
-  "script-src 'self' https://pagead2.googlesyndication.com https://adservice.google.com",
+  // Scripts: self + AdSense + unsafe-inline (required by Next.js 14 SSR hydration scripts)
+  // unsafe-eval remains REMOVED — prevents eval()/Function() injection attacks.
+  // Note: full removal of unsafe-inline requires nonce-based CSP (future improvement).
+  "script-src 'self' 'unsafe-inline' https://pagead2.googlesyndication.com https://adservice.google.com",
 
   // Styles: unsafe-inline is OK here — it cannot cause script execution
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
