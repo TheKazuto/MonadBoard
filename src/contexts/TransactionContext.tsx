@@ -96,7 +96,7 @@ export function TransactionProvider({ children }: { children: ReactNode }) {
           type: classifyType(tx, addr),
         }))
         // Deduplicate by hash (keep first occurrence)
-        .filter((tx, i, arr) => arr.findIndex(t => t.hash === tx.hash) === i)
+        .filter((tx: Transaction, i: number, arr: Transaction[]) => arr.findIndex((t: Transaction) => t.hash === tx.hash) === i)
         // Always sort newest first — stable order, never shuffles on re-render
         .sort((a, b) => b.timestamp - a.timestamp)
 
