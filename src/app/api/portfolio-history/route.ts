@@ -43,6 +43,8 @@ async function fetchAllBalances(address: string): Promise<{
 
 async function fetchPriceHistory(coinId: string, days: number): Promise<[number, number][]> {
   try {
+    // Fix #18 (INFO): Uses COINGECKO_API_KEY (server-only, no NEXT_PUBLIC_ prefix).
+    // Consistent with top-tokens/route.ts after fix #11.
     const apiKey   = process.env.COINGECKO_API_KEY
     const baseUrl  = apiKey ? 'https://pro-api.coingecko.com' : 'https://api.coingecko.com'
     const keyParam = apiKey ? `&x_cg_pro_api_key=${apiKey}` : ''
@@ -59,7 +61,13 @@ async function fetchPriceHistory(coinId: string, days: number): Promise<[number,
 
 export async function GET(req: NextRequest) {
   const address = req.nextUrl.searchParams.get('address')
-  const days    = parseInt(req.nextUrl.searchParams.get('days') ?? '30')
+
+  // Fix #8 (MÉDIO): Restrict `days` to a safe allowlist.
+  // Previously, parseInt() returned NaN/-1/999999 for malformed values,
+  // which were passed directly to the CoinGecko API causing unexpected behavior.
+  const VALID_DAYS = new Set([7, 30, 90, 180, 365])
+  const rawDays   = parseInt(req.nextUrl.searchParams.get('days') ?? '30', 10)
+  const days      = VALID_DAYS.has(rawDays) ? rawDays : 30
 
   if (!address || !/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return NextResponse.json({ error: 'Invalid address' }, { status: 400 })

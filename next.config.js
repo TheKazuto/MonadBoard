@@ -1,38 +1,126 @@
 /** @type {import('next').NextConfig} */
+
+// ─── Strict Content-Security-Policy ──────────────────────────────────────────
+// Removes unsafe-eval and unsafe-inline from script-src.
+// RainbowKit/wagmi use style attributes on DOM elements, not <style> tags,
+// so 'unsafe-inline' in style-src is still required but harmless (can't exec JS).
+const CSP = [
+  "default-src 'self'",
+
+  // Scripts: self + AdSense only — NO unsafe-eval, NO unsafe-inline
+  "script-src 'self' https://pagead2.googlesyndication.com https://adservice.google.com",
+
+  // Styles: unsafe-inline is OK here — it cannot cause script execution
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+
+  // Fonts
+  "font-src 'self' https://fonts.gstatic.com data:",
+
+  // Images: explicit CDN allowlist — no wildcard http:
+  [
+    "img-src 'self' data: blob:",
+    "https://assets.coingecko.com",
+    "https://coin-images.coingecko.com",
+    "https://tokens.1inch.io",
+    "https://raw.githubusercontent.com",
+    "https://api.geckoterminal.com",
+    "https://ipfs.io",
+    "https://gateway.pinata.cloud",
+    "https://arweave.net",
+    "https://nftstorage.link",
+    "https://icons.llamao.fi",
+    "https://s2.coinmarketcap.com",
+    "https://effigy.im",
+    "https://metadata.ens.domains",
+    "https://api-mainnet.magiceden.dev",
+    "https://pagead2.googlesyndication.com",
+    "https://googleads.g.doubleclick.net",
+  ].join(' '),
+
+  // Connections: every upstream API, RPC, and WalletConnect endpoint
+  [
+    "connect-src 'self'",
+    "https://rpc.monad.xyz",
+    "https://api.coingecko.com",
+    "https://pro-api.coingecko.com",
+    "https://api.geckoterminal.com",
+    "https://tokens.coingecko.com",
+    "https://api.etherscan.io",
+    "https://api-v2.rubic.exchange",
+    "https://api-mainnet.magiceden.dev",
+    "https://open.er-api.com",
+    "https://api.alternative.me",
+    "https://api.lagoon.finance",
+    "https://app.renzoprotocol.com",
+    "wss://relay.walletconnect.com",
+    "wss://relay.walletconnect.org",
+    "https://relay.walletconnect.com",
+    "https://relay.walletconnect.org",
+    "https://api.web3modal.com",
+    "https://pulse.walletconnect.org",
+    "https://rainbowkit.com",
+    "https://ethereum-rpc.publicnode.com",
+    "https://bsc-rpc.publicnode.com",
+    "https://polygon-rpc.com",
+    "https://arb1.arbitrum.io",
+    "https://mainnet.optimism.io",
+    "https://mainnet.base.org",
+    "https://api.avax.network",
+    "https://pagead2.googlesyndication.com",
+    "https://adservice.google.com",
+    "https://googleads.g.doubleclick.net",
+  ].join(' '),
+
+  // Frames: AdSense only
+  "frame-src https://googleads.g.doubleclick.net https://tpc.googlesyndication.com",
+
+  // Workers
+  "worker-src 'self' blob:",
+
+  // Block plugins (Flash, etc.)
+  "object-src 'none'",
+
+  // Force HTTPS for all sub-resources
+  "upgrade-insecure-requests",
+].join('; ')
+
 const nextConfig = {
   images: {
-    // Not needed since we use <img> native, but kept for reference
-    domains: [
-      'assets.coingecko.com',
-      'coin-images.coingecko.com',
-      'tokens.1inch.io',
-      'raw.githubusercontent.com',
-      'api.geckoterminal.com',
+    remotePatterns: [
+      { protocol: 'https', hostname: 'assets.coingecko.com' },
+      { protocol: 'https', hostname: 'coin-images.coingecko.com' },
+      { protocol: 'https', hostname: 'raw.githubusercontent.com' },
+      { protocol: 'https', hostname: 'api.geckoterminal.com' },
+      { protocol: 'https', hostname: 'ipfs.io' },
+      { protocol: 'https', hostname: 'gateway.pinata.cloud' },
+      { protocol: 'https', hostname: 'icons.llamao.fi' },
     ],
   },
+
   async headers() {
     return [
       {
         source: '/(.*)',
         headers: [
-          {
-            // Allow images from all token logo CDNs
-            key: 'Content-Security-Policy',
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              "font-src 'self' https://fonts.gstatic.com",
-              "img-src 'self' data: blob: https: http:",  // allow all HTTPS image sources
-              "connect-src 'self' https: wss:",           // allow all HTTPS API calls
-            ].join('; '),
-          },
+          // Fix #1 (CRÍTICO): Strict CSP — removes unsafe-eval/unsafe-inline from script-src
+          { key: 'Content-Security-Policy', value: CSP },
+
+          // Fix #14 (MÉDIO): Previously missing security headers
+          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=(), interest-cohort=()' },
+          { key: 'X-XSS-Protection', value: '0' },
+          { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
         ],
       },
     ]
   },
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
+
+  // Fix #16 (BAIXO): TypeScript and ESLint are now enforced on every build.
+  // Removed: eslint: { ignoreDuringBuilds: true }
+  // Removed: typescript: { ignoreBuildErrors: true }
 }
 
 module.exports = nextConfig

@@ -4,7 +4,11 @@ export const revalidate = 60 // cache por 60 segundos
 
 export async function GET() {
   try {
-    const apiKey = process.env.NEXT_PUBLIC_COINGECKO_API_KEY
+    // Fix #11 (MÉDIO): Renamed from NEXT_PUBLIC_COINGECKO_API_KEY to COINGECKO_API_KEY.
+    // Variables prefixed with NEXT_PUBLIC_ are embedded in the client-side JS bundle,
+    // exposing the API key to any visitor. Server-only routes must NOT use NEXT_PUBLIC_.
+    // Update your .env.local and Vercel env vars accordingly.
+    const apiKey = process.env.COINGECKO_API_KEY
     const headers: Record<string, string> = {
       'Accept': 'application/json',
     }

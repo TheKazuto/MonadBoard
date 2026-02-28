@@ -4,46 +4,82 @@ import { NextRequest, NextResponse } from 'next/server'
 const cache = new Map<string, { data: unknown; ts: number }>()
 const TTL = 60 * 60 * 1000
 
-// Chains that use GeckoTerminal instead of CoinGecko token list
-// because they don't have a CoinGecko token list yet
+// Fix #3 (ALTO): Strict allowlist of valid platform values.
+// Previously, the `platform` param was interpolated directly into the CoinGecko URL
+// without any validation, enabling path traversal and cache-key poisoning.
+// Now only known-good values are accepted — anything else gets a 400.
+
+/** Platforms served via GeckoTerminal (Monad not yet on CoinGecko token list) */
 const GECKO_TERMINAL_NETWORKS: Record<string, string> = {
-  monad:   'monad',
+  monad:          'monad',
   'monad-mainnet': 'monad',
 }
 
-// Fetch top tokens from GeckoTerminal for chains not in CoinGecko token list
-// Returns tokens in the same shape as CoinGecko token list { tokens: [...] }
+/** All valid CoinGecko token-list platform slugs supported by the swap page */
+const COINGECKO_PLATFORMS = new Set([
+  'ethereum',
+  'binance-smart-chain',
+  'polygon-pos',
+  'avalanche',
+  'arbitrum-one',
+  'optimistic-ethereum',
+  'base',
+  'fantom',
+  'aurora',
+  'celo',
+  'harmony-shard-0',
+  'moonbeam',
+  'moonriver',
+  'cronos',
+  'xdai',
+  'klay-token',
+  'boba',
+  'okex-chain',
+  'telos',
+  'fuse',
+  'iotex',
+  'tron',
+  'near-protocol',
+  'linea',
+  'zksync',
+  'scroll',
+  'mantle',
+  'blast',
+  'metis-andromeda',
+  'zkfair',
+  'solana',
+])
+
 async function fetchFromGeckoTerminal(network: string) {
-  // Fetch multiple pages of top pools to build a token list
-  // Each pool has base_token + quote_token with image_url
   const tokenMap = new Map<string, {
     symbol: string; name: string; address: string; decimals: number; logoURI: string
   }>()
 
-  // Fetch top pools page 1 and 2 (each has 100 pools = ~200 unique tokens)
   for (let page = 1; page <= 3; page++) {
     try {
       const res = await fetch(
-        `https://api.geckoterminal.com/api/v2/networks/${network}/pools?include=base_token,quote_token&page=${page}&sort=h24_volume_usd_desc`,
+        `https://api.geckoterminal.com/api/v2/networks/${encodeURIComponent(network)}/pools?include=base_token,quote_token&page=${page}&sort=h24_volume_usd_desc`,
         { headers: { 'Accept': 'application/json' }, next: { revalidate: 3600 } }
       )
       if (!res.ok) break
 
       const data = await res.json()
-      const included: any[] = data.included ?? []
+      const included: unknown[] = data.included ?? []
 
       for (const item of included) {
-        if (item.type !== 'token') continue
-        const a = item.attributes
-        const addr = a.address?.toLowerCase()
+        if (typeof item !== 'object' || item === null) continue
+        const obj = item as Record<string, unknown>
+        if (obj.type !== 'token') continue
+        const a = obj.attributes as Record<string, unknown>
+        const addr = (a.address as string)?.toLowerCase()
         if (!addr || tokenMap.has(addr)) continue
 
         tokenMap.set(addr, {
-          symbol:   a.symbol ?? '',
-          name:     a.name ?? a.symbol ?? '',
-          address:  a.address,
-          decimals: a.decimals ?? 18,
-          logoURI:  a.image_url && a.image_url !== 'missing.png' ? a.image_url : '',
+          symbol:   (a.symbol as string) ?? '',
+          name:     (a.name as string) ?? (a.symbol as string) ?? '',
+          address:  a.address as string,
+          decimals: (a.decimals as number) ?? 18,
+          logoURI:  a.image_url && a.image_url !== 'missing.png' ? (a.image_url as string) : '',
         })
       }
     } catch { break }
@@ -54,9 +90,18 @@ async function fetchFromGeckoTerminal(network: string) {
 
 export async function GET(req: NextRequest) {
   const platform = req.nextUrl.searchParams.get('platform')
-  if (!platform) return NextResponse.json({ error: 'missing platform' }, { status: 400 })
+  if (!platform) {
+    return NextResponse.json({ error: 'Missing platform', tokens: [] }, { status: 400 })
+  }
 
-  // Check cache
+  // Fix #3: Reject any platform not in our allowlists
+  const gtNetwork = GECKO_TERMINAL_NETWORKS[platform]
+  const isCoinGecko = COINGECKO_PLATFORMS.has(platform)
+  if (!gtNetwork && !isCoinGecko) {
+    return NextResponse.json({ error: 'Unsupported platform', tokens: [] }, { status: 400 })
+  }
+
+  // Check cache (key is now guaranteed to be a known-safe value)
   const cached = cache.get(platform)
   if (cached && Date.now() - cached.ts < TTL) {
     return NextResponse.json(cached.data)
@@ -65,12 +110,10 @@ export async function GET(req: NextRequest) {
   try {
     let data: unknown
 
-    const gtNetwork = GECKO_TERMINAL_NETWORKS[platform]
     if (gtNetwork) {
-      // Use GeckoTerminal for chains not yet on CoinGecko token list
       data = await fetchFromGeckoTerminal(gtNetwork)
     } else {
-      // Use CoinGecko token list (Uniswap-compatible format)
+      // Safe: platform is a member of the COINGECKO_PLATFORMS allowlist
       const res = await fetch(`https://tokens.coingecko.com/${platform}/all.json`, {
         headers: { 'Accept': 'application/json' },
         next: { revalidate: 3600 },
@@ -81,7 +124,9 @@ export async function GET(req: NextRequest) {
 
     cache.set(platform, { data, ts: Date.now() })
     return NextResponse.json(data)
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message, tokens: [] }, { status: 502 })
+  } catch (e: unknown) {
+    // Fix #9: Generic error — no internal details exposed
+    console.error('[token-list] platform:', platform, 'error:', e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: 'Failed to fetch token list', tokens: [] }, { status: 502 })
   }
 }

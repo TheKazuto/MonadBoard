@@ -23,6 +23,13 @@ export async function cachedFetch<T>(
   address: string,
   force = false,
 ): Promise<T> {
+  // Fix #17 (BAIXO): Validate address format before use in URL construction.
+  // Previously, a malformed address could produce unexpected query parameters
+  // via special characters like &, =, or ?.
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+    throw new Error(`cachedFetch: invalid Ethereum address: ${address}`)
+  }
+
   const k     = key(endpoint, address)
   const entry = store.get(k)
   const now   = Date.now()
@@ -38,8 +45,9 @@ export async function cachedFetch<T>(
   }
 
   // Fire new request
-  const sep = endpoint.includes("?") ? "&" : "?"
-  const promise = fetch(`${endpoint}${sep}address=${address}`)
+  const sep = endpoint.includes('?') ? '&' : '?'
+  // Fix #17: encodeURIComponent ensures the address cannot inject extra query params
+  const promise = fetch(`${endpoint}${sep}address=${encodeURIComponent(address)}`)
     .then(r => r.json())
     .then(data => {
       store.set(k, { data, fetchedAt: Date.now(), promise: null })

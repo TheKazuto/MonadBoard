@@ -13,7 +13,10 @@ import { SORA } from '@/lib/styles'
 // ─── INTEGRATOR CONFIG ────────────────────────────────────────────────────────
 // Set NEXT_PUBLIC_FEE_RECEIVER in .env.local to your wallet address to earn 0.2% swap fees
 // Leave unset to disable fee collection (swap will still work normally)
-const FEE_RECEIVER = process.env.NEXT_PUBLIC_FEE_RECEIVER ?? '0x31815191b09e3D0F37FEF2d61c62487AD3bF327F'
+// Fix #10 (MÉDIO): Removed the hardcoded fallback wallet address.
+// When NEXT_PUBLIC_FEE_RECEIVER is not set, fee collection is simply disabled.
+// This prevents the developer's wallet address from appearing in the public bundle.
+const FEE_RECEIVER = process.env.NEXT_PUBLIC_FEE_RECEIVER ?? ''
 const FEE_PERCENT  = 0.2
 const REFERRER     = 'monboard.xyz'
 const NATIVE       = '0x0000000000000000000000000000000000000000'
@@ -759,6 +762,48 @@ export default function SwapPage() {
     setAmount(''); setQuote(null)
   }
 
+  // Fix #6: Parse swap amount into raw bigint for exact ERC-20 approval
+  function parseSwapAmount(amt: string, decimals: number): bigint {
+    try {
+      const parsed = parseFloat(amt)
+      if (isNaN(parsed) || parsed <= 0) return 0n
+      // Add 0.5% buffer to handle minor rounding between quote and execution
+      const withBuffer = parsed * 1.005
+      return BigInt(Math.floor(withBuffer * Math.pow(10, decimals)))
+    } catch { return 0n }
+  }
+
+  // Fix #7: Validate the transaction object returned by Rubic before signing.
+  // Checks: (1) `to` is a valid EVM address, (2) `data` starts with 0x,
+  // (3) `value` is not astronomically larger than the expected swap value.
+  function validateRubicTransaction(
+    tx: { to: string; data: string; value?: string; approvalAddress?: string },
+    swapAmount: string,
+    decimals: number,
+  ): boolean {
+    const EVM_ADDR = /^0x[0-9a-fA-F]{40}$/
+    const HEX_DATA = /^0x[0-9a-fA-F]*$/
+
+    if (!EVM_ADDR.test(tx.to))   return false
+    if (!HEX_DATA.test(tx.data)) return false
+
+    // approvalAddress, if present, must also be a valid address
+    if (tx.approvalAddress && !EVM_ADDR.test(tx.approvalAddress)) return false
+
+    // The native value sent must not exceed the swap amount by more than 5x
+    // (accounts for bridge fees, gas topups, etc.)
+    if (tx.value && tx.value !== '0') {
+      try {
+        const valueBig   = BigInt(tx.value)
+        const amountBig  = parseSwapAmount(swapAmount, decimals)
+        const maxAllowed = amountBig * 5n
+        if (amountBig > 0n && valueBig > maxAllowed) return false
+      } catch { return false }
+    }
+
+    return true
+  }
+
   async function executeSwap() {
     if (!address || !quote || !amount || quoteExpired) return
     if (receiver.trim() && !validateReceiver(receiver)) return
@@ -778,8 +823,10 @@ export default function SwapPage() {
           to: fromToken.address as `0x${string}`,
           data: encodeFunctionData({
             abi: ERC20_APPROVE_ABI, functionName: 'approve',
+            // Fix #6 (ALTO): Approve only the exact swap amount + 0.5% buffer,
+            // not MAX_UINT256. This limits exposure if the contract is later exploited.
             args: [transaction.approvalAddress as `0x${string}`,
-              BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')],
+              parseSwapAmount(amount, fromToken.decimals)],
           }),
         })
         setTxStatus('swapping')

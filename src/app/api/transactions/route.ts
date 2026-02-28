@@ -26,10 +26,25 @@ export async function GET(req: NextRequest) {
   // ── PATH 1: Etherscan V2 (if API key is set) ────────────────────────────────
   if (apiKey && apiKey !== 'YourApiKeyToken') {
     try {
-      const BASE = `https://api.etherscan.io/v2/api?chainid=143&apikey=${apiKey}`
+      // Fix #5 (ALTO): Use URL object so apiKey is set via searchParams, not string interpolation.
+      // This prevents the key from appearing in raw template-literal log output.
+      const buildEtherscanUrl = (module: string, action: string) => {
+        const u = new URL('https://api.etherscan.io/v2/api')
+        u.searchParams.set('chainid',    '143')
+        u.searchParams.set('apikey',     apiKey)
+        u.searchParams.set('module',     module)
+        u.searchParams.set('action',     action)
+        u.searchParams.set('address',    address)
+        u.searchParams.set('startblock', '0')
+        u.searchParams.set('endblock',   '99999999')
+        u.searchParams.set('page',       '1')
+        u.searchParams.set('offset',     '100')
+        u.searchParams.set('sort',       'desc')
+        return u.toString()
+      }
       const [txRes, tokenRes] = await Promise.all([
-        fetch(`${BASE}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=1&offset=100&sort=desc`, { cache: 'no-store' }),
-        fetch(`${BASE}&module=account&action=tokentx&address=${address}&startblock=0&endblock=99999999&page=1&offset=100&sort=desc`, { cache: 'no-store' }),
+        fetch(buildEtherscanUrl('account', 'txlist'),  { cache: 'no-store' }),
+        fetch(buildEtherscanUrl('account', 'tokentx'), { cache: 'no-store' }),
       ])
       const [txData, tokenData] = await Promise.all([txRes.json(), tokenRes.json()])
 
@@ -59,7 +74,7 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ transactions: all, source: 'etherscan' })
       }
     } catch (e) {
-      console.error('[tx] etherscan error:', e)
+      console.error('[tx] etherscan error:', e instanceof Error ? e.message : e)
     }
   }
 

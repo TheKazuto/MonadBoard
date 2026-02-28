@@ -20,6 +20,17 @@ function fmtBal(b: number) {
   return b.toFixed(6)
 }
 
+// Fix #13 (MÉDIO): Sanitize NFT/token image URLs before rendering in <img> tags.
+// NFT metadata comes from arbitrary on-chain URIs. Without this check, a malicious
+// NFT could inject javascript: or data:text/html: URIs as image sources.
+// The server-side nfts route already sanitizes, but this adds defense-in-depth.
+const SAFE_IMAGE_ORIGIN = /^https:\/\//i
+function sanitizeImgSrc(url: string | null | undefined): string | null {
+  if (!url) return null
+  // Only allow HTTPS URLs — blocks javascript:, data:, file:, etc.
+  return SAFE_IMAGE_ORIGIN.test(url) ? url : null
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 function Skeleton({ className }: { className: string }) {
   return <div className={`animate-pulse bg-gray-100 rounded-xl ${className}`} />
@@ -78,7 +89,7 @@ function TokenRow({ token }: { token: TokenData }) {
           <div className="w-9 h-9 rounded-full shrink-0 overflow-hidden shadow-sm" style={{ background: token.color }}>
             {token.imageUrl
               // eslint-disable-next-line @next/next/no-img-element
-              ? <img src={token.imageUrl} alt={token.symbol} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none' }} />
+              ? <img src={sanitizeImgSrc(token.imageUrl) ?? undefined} alt={token.symbol} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none' }} />
               : <div className="w-full h-full flex items-center justify-center text-white text-xs font-bold">{token.symbol.slice(0,2)}</div>
             }
           </div>
@@ -113,7 +124,7 @@ function NFTCard({ nft }: { nft: NFTData }) {
       <div className="aspect-square bg-gradient-to-br from-violet-100 to-purple-200 flex items-center justify-center overflow-hidden">
         {nft.image && !imgErr
           // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={nft.image} alt={nft.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" onError={() => setImgErr(true)} />
+          ? <img src={sanitizeImgSrc(nft.image) ?? undefined} alt={nft.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" onError={() => setImgErr(true)} />
           : <div className="flex flex-col items-center gap-1.5 text-violet-300"><ImageIcon size={28} /><span className="text-xs">{nft.symbol || '?'}</span></div>
         }
       </div>
@@ -149,7 +160,7 @@ function NFTListRow({ nft }: { nft: NFTData }) {
       <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-100 to-purple-200 flex items-center justify-center overflow-hidden shrink-0">
         {nft.image && !imgErr
           // eslint-disable-next-line @next/next/no-img-element
-          ? <img src={nft.image} alt={nft.name} className="w-full h-full object-cover" onError={() => setImgErr(true)} />
+          ? <img src={sanitizeImgSrc(nft.image) ?? undefined} alt={nft.name} className="w-full h-full object-cover" onError={() => setImgErr(true)} />
           : <ImageIcon size={16} className="text-violet-300" />
         }
       </div>
